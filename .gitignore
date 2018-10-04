@@ -1,3 +1,11 @@
 .vs
 x64/*
 my_utils/tmp/*
+*.opt
+*.clw
+*.ncb
+*.aps
+*.mak
+*.suo
+*.pdb
+*.vcproj.user
