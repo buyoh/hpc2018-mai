@@ -99,21 +99,30 @@ namespace hpc {
 
 //------------------------------------------------------------------------------
     namespace util {
+
+        // @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
         //using ITER = vector<Piece>::const_iterator;
-        bool isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
-            for (auto it = begin; it != end; ++it) {
+        ITER isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
+            auto it = begin
+            for (; it != end; ++it) {
                 const Piece& p = *it;
                 if (Util::IsIntersect(
                         piece.pos(), piece.width(), piece.height(),
                         p.pos(), p.width(), p.height()
                     )) {
-                    return true;
+                    return it;
                 }
             }
-            return false;
+            return it;
         }
 
+        inline bool isIntersectPieces(const Piece& p1, const Piece& p2) {
+            return Util::IsIntersect(
+                p1.pos(), p1.width(), p1.height(),
+                p2.pos(), p2.width(), p2.height()
+            );
+        }
     }
     namespace algo {
 
@@ -238,6 +247,59 @@ namespace hpc {
             return bestHistory;
         }
 
+
+        // 計算量はO*(N!)
+        History solvePlacementPiece(const Oven& oven, const vector<Piece>& pieces) {
+            
+            vector<Tag<int, Piece*>> shuffler;
+            shuffler.reserve(pieces.size());
+            repeat(i, pieces.size()) shuffler.emplace_back(i, &pieces[i]);
+
+            int bestScore = 0;
+            History best;
+
+            do {
+                vector<Piece> placed(ALL(oven.bakingPieces()));
+
+                int currScore = 0;
+
+                // 今置こうとしている
+                auto picked = shuffler.begin();
+                // 直前の検証で重なった
+                auto currIsec = placed.end();
+
+                History result;
+
+                for (auto xy : DreamcastScan(oven.width())) {
+                    int x = xy.first, y = xy.second;
+
+                    if (currIsec != placed.end()) {
+                        if (util::isIntersectPieces(*currIsec, *(picked->second)))
+                            continue;
+                        else
+                            currIsec = placed.end();
+                    }
+
+                    auto isec = util::isIntersectPieces(ALL(placed), *(picked->second));
+
+                    if (isec != placed.end()) {
+                        currIsec = isec;
+                    }
+                    else {
+                        placed.push_back(*(picked->second));
+                        currScore += picked->second->score;
+                        result.emplace_back(picked->first, Vector2i(x, y));
+                        ++picked;
+                    }
+                }
+                if (bestScore < currScore) {
+                    bestScore = currScore;
+                    best = move(result);
+                }
+
+            } while (next_permutation(ALL(shuffler)));
+        }
+
         
     }
 //------------------------------------------------------------------------------
@@ -298,10 +360,8 @@ Action Answer::decideNextAction(const Stage& aStage)
 
             auto i = p.second.first;
             for (auto xy : DreamcastScan(oven.width())) {
-                int x, y;
-                x = xy.first;
-                y = xy.second;
-                if (util::isIntersectPieces(ALL(bakingLargePieces), piece)) {
+                int x = xy.first, y = xy.second;
+                if (util::isIntersectPieces(ALL(bakingLargePieces), piece) != bakingLargePieces.end()) {
                     if (largeBest.first < piece.score()) {
                         largeBest = decltype(largeBest)(piece.score(), piece);
                         mark = it;
