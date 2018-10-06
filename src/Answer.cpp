@@ -66,6 +66,9 @@ namespace hpc {
         inline bool operator <(const Tag& t) const {
             return first < t.first;
         }
+        inline bool operator >(const Tag& t) const {
+            return first > t.first;
+        }
     };
 
 //------------------------------------------------------------------------------
@@ -217,9 +220,6 @@ void Answer::init(const Stage& aStage)
 }
 
 
-static util::History moveStacked;
-array<int, 8> order;
-
 //------------------------------------------------------------------------------
 /// このターンでの行動を指定する。
 /// @detail 希望する行動を Action の static 関数で生成して return してください。
@@ -232,44 +232,29 @@ Action Answer::decideNextAction(const Stage& aStage)
     auto& laneS = aStage.candidateLane(CandidateLaneType_Small);
     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
     auto& oven = aStage.oven();
+    
 
-    if ([&]() {
-        repeat(i, laneL.pieces().count()) {
+    vector<Tag<pair<int, int>, pair<int, Piece>>> pieces; pieces.reserve(16);
+    repeat(i, laneS.pieces().count())
+        pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i + 8, laneS.pieces()[i]));
+    repeat(i, laneL.pieces().count())
+        pieces.emplace_back(make_pair(laneL.pieces()[i].height(), laneL.pieces()[i].width()), make_pair(i, laneL.pieces()[i]));
+    sort(ALL(pieces), greater<decltype(pieces)::value_type>());
+
+    for (auto p : pieces) {
+        const auto& piece = p.second.second;
+        auto i = p.second.first;
+        repeat(x, oven.width()) {
             repeat(y, oven.height()) {
-                repeat(x, oven.width()) {
-                    if (aStage.oven().isAbleToPut(laneL.pieces()[i], Vector2i(x, y))) {
-                        return false;
-                    }
+                if (oven.isAbleToPut(piece, Vector2i(x, y))) {
+                    return Action::Put(i >= 8 ? CandidateLaneType_Small : CandidateLaneType_Large, i%8, Vector2i(x, y));
                 }
             }
         }
-        repeat(i, laneL.pieces().count()) {
-            repeat(y, oven.height()) {
-                repeat(x, min(oven.width(), 5)) {
-                    if (aStage.oven().isAbleToPut(laneS.pieces()[i], Vector2i(x, y))) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }()) {
-        return Action::Wait();
     }
 
-    if (moveStacked.empty()) {
-        moveStacked = util::chokudaiSearchLarge(aStage);
-        fill(ALL(order), 0);
-    }
-    if (moveStacked.empty()) return Action::Wait();
 
-    auto act = moveStacked.front(); moveStacked.pop_front();
-    int idx = act.first;
-    repeat(i, act.first)
-        idx += order[i];
-    order[act.first] -= 1;
-
-    return Action::Put(CandidateLaneType_Large, idx, act.second);
+    return Action::Wait();
 }
 
 //------------------------------------------------------------------------------
