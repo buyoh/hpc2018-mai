@@ -71,8 +71,51 @@ namespace hpc {
         }
     };
 
+    struct DreamcastScan {
+        const int Width;
+        constexpr DreamcastScan(int _w) :Width(_w) {}
+        struct Iterator {
+            int w; // width
+            int i, o; // index, offset
+            constexpr Iterator(int _w, int _i, int _o) :w(_w), i(_i), o(_o) {}
+
+            inline pair<int, int> operator*() const {
+                if (i < w - 1) return make_pair(o + i, o);
+                else if (i < (w - 1) * 2) return make_pair(o + w - 1, o + i - (w - 1));
+                else if (i < (w - 1) * 3) return make_pair(o + (w - 1) * 3 - i, o + w - 1);
+                else return make_pair(o, o + (w - 1) * 4 - i);
+            }
+            inline Iterator& operator++() {
+                if (++i >= (w - 1) * 4) i = 0, w -= 2, o += 1;
+                return *this;
+            }
+            inline bool operator!=(const Iterator& it) const {
+                return w != it.w || i != it.i;
+            }
+        };
+        constexpr inline Iterator begin() const { return Iterator(Width, 0, 0); }
+        constexpr inline Iterator end() const { return Iterator(-(Width & 1), 0, 0); }
+    };
+
 //------------------------------------------------------------------------------
     namespace util {
+        template<typename ITER>
+        //using ITER = vector<Piece>::const_iterator;
+        bool isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
+            for (auto it = begin; it != end; ++it) {
+                const Piece& p = *it;
+                if (Util::IsIntersect(
+                        piece.pos(), piece.width(), piece.height(),
+                        p.pos(), p.width(), p.height()
+                    )) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    }
+    namespace algo {
 
         using History = list<pair<int, Vector2i>>;
 
@@ -85,7 +128,6 @@ namespace hpc {
         };
 
         using State = Tag<int, StateData>;
-
         // TLE
         pair<int, Vector2i> chokudaiSearch(const Stage& aStage) {
             // assert(laneS.pieces().count() == 8);
@@ -195,6 +237,8 @@ namespace hpc {
 
             return bestHistory;
         }
+
+        
     }
 //------------------------------------------------------------------------------
 /// コンストラクタ。
@@ -232,28 +276,70 @@ Action Answer::decideNextAction(const Stage& aStage)
     auto& laneS = aStage.candidateLane(CandidateLaneType_Small);
     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
     auto& oven = aStage.oven();
+
+    vector<Piece> bakingLargePieces;
+    for (auto& p : oven.bakingPieces())
+        if (p.height() * p.width() >= 20) bakingLargePieces.push_back(p);
     
 
-    vector<Tag<pair<int, int>, pair<int, Piece>>> pieces; pieces.reserve(16);
-    repeat(i, laneS.pieces().count())
-        pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i + 8, laneS.pieces()[i]));
+    list<Tag<pair<int, int>, pair<int, Piece>>> pieces;
+    //repeat(i, laneS.pieces().count())
+    //    pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i + 8, laneS.pieces()[i]));
     repeat(i, laneL.pieces().count())
         pieces.emplace_back(make_pair(laneL.pieces()[i].height(), laneL.pieces()[i].width()), make_pair(i, laneL.pieces()[i]));
-    sort(ALL(pieces), greater<decltype(pieces)::value_type>());
+    pieces.sort(greater<decltype(pieces)::value_type>());
+
+    Tag<int, Piece> largeBest(0, Piece());
+    while (true) {
+        auto mark = pieces.end();
+        for (auto it = pieces.begin(); it != pieces.end(); ++it) {
+            auto& p = *it;
+            const auto& piece = p.second.second;
+
+            auto i = p.second.first;
+            for (auto xy : DreamcastScan(oven.width())) {
+                int x, y;
+                x = xy.first;
+                y = xy.second;
+                if (util::isIntersectPieces(ALL(bakingLargePieces), piece)) {
+                    if (largeBest.first < piece.score()) {
+                        largeBest = decltype(largeBest)(piece.score(), piece);
+                        mark = it;
+                    }
+                }
+                if (oven.isAbleToPut(piece, Vector2i(x, y))) {
+                    return Action::Put(CandidateLaneType_Large, i, Vector2i(x, y));
+                }
+            }
+        }
+
+        if (largeBest.first > 0) {
+            bakingLargePieces.push_back(largeBest.second);
+            largeBest = decltype(largeBest)(0, Piece());
+            pieces.erase(mark);
+        }
+        else
+            break;
+    }
+
+    pieces.clear();
+    repeat(i, laneS.pieces().count())
+        pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i, laneS.pieces()[i]));
+    pieces.sort(greater<decltype(pieces)::value_type>());
+
 
     for (auto p : pieces) {
         const auto& piece = p.second.second;
         auto i = p.second.first;
-        repeat(x, oven.width()) {
-            repeat(y, oven.height()) {
-                if (oven.isAbleToPut(piece, Vector2i(x, y))) {
-                    return Action::Put(i >= 8 ? CandidateLaneType_Small : CandidateLaneType_Large, i%8, Vector2i(x, y));
-                }
+        for (auto xy : DreamcastScan(oven.width())) {
+            int x, y;
+            x = xy.first;
+            y = xy.second;
+            if (oven.isAbleToPut(piece, Vector2i(x, y))) {
+                return Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
             }
         }
     }
-
-
     return Action::Wait();
 }
 
