@@ -50,6 +50,8 @@ using namespace std;
 #define diterate(cnt,b,e) for(auto cnt=(b);(cnt)!=(e);--(cnt))
 
 
+// 縦長のクッキーは生成されにくい？
+
 //------------------------------------------------------------------------------
 namespace hpc {
 
@@ -71,8 +73,10 @@ namespace hpc {
         }
     };
 
-    struct DreamcastScan {
+
+    class DreamcastScan {
         const int Width;
+    public:
         constexpr DreamcastScan(int _w) :Width(_w) {}
         struct Iterator {
             int w; // width
@@ -89,28 +93,92 @@ namespace hpc {
                 if (++i >= (w - 1) * 4) i = 0, w -= 2, o += 1;
                 return *this;
             }
-            inline bool operator!=(const Iterator& it) const {
-                return w != it.w || i != it.i;
+            inline bool operator!=(const Iterator& another) const {
+                return w != another.w || i != another.i;
+                
             }
         };
         constexpr inline Iterator begin() const { return Iterator(Width, 0, 0); }
         constexpr inline Iterator end() const { return Iterator(-(Width & 1), 0, 0); }
     };
 
+    class WipeScan {
+        const int Width;
+    public:
+        constexpr WipeScan(int _w) :Width(_w) {}
+        struct Iterator {
+            int w; // width
+            int i, j; // index
+            constexpr Iterator(int _w, int _i, int _j) :w(_w), i(_i), j(_j) {}
+
+            inline pair<int, int> operator*() const {
+                return make_pair(i & 1 ? w - 1 - i / 2 : i / 2, j);
+            }
+            inline Iterator& operator++() {
+                if (++j >= w) j = 0, ++i;
+                return *this;
+            }
+            inline bool operator!=(const Iterator& another) const {
+                return w != another.w || i != another.i || j != another.j;
+
+            }
+        };
+        constexpr inline Iterator begin() const { return Iterator(Width, 0, 0); }
+        constexpr inline Iterator end() const { return Iterator(Width, Width, 0); }
+    };
+
+    template<typename ITER>
+    class IteratorWithIndex {
+        //using ITER = int*;
+        const ITER begin_;
+        const ITER end_;
+    public:
+        IteratorWithIndex(ITER _begin, ITER _end) :begin_(move(_begin)), end_(move(_end)) { }
+        struct Iterator {
+            ITER it;
+            int i;
+            Iterator(ITER _it, int _i) :it(move(_it)), i(_i) { }
+            inline pair<int, decltype(*it)> operator*() const { return pair<int, decltype(*it)>(i, *it); }
+            inline Iterator& operator++() { ++it, ++i; return *this; }
+            inline auto operator!=(const Iterator& another) const -> decltype(it != another.it) { return it != another.it; }
+        };
+        inline Iterator begin() const { return Iterator(begin_, 0); }
+        inline Iterator end() const { return Iterator(end_, 0); }
+    };
+    template<typename ITER> inline IteratorWithIndex<ITER> make_IteratorWithIndex(ITER _begin, ITER _end) { 
+        return IteratorWithIndex<ITER>(_begin, _end);
+    }
+
+
 //------------------------------------------------------------------------------
     namespace util {
+
+        // 0 : horizontal, 1 : vertical, 2 : yuyuko
+        int ScanMode = 0;
+
+        mt19937_64 randdev(8901016);
+        template<typename T> inline T rand(T l, T h) { return uniform_int_distribution<T>(l, h)(randdev); }
+        template<> inline double rand<double>(double l, double h) { return uniform_real_distribution<double>(l, h)(randdev); }
+        template<> inline float rand<float>(float l, float h) { return uniform_real_distribution<float>(l, h)(randdev); }
+
+
+        // @return end iterator -> NO / valid iterator -> YES
+        template<typename ITER>
+        inline ITER isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
+            return isIntersectPieces(begin, end, piece.pos(), piece);
+        }
 
         // @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
         //using ITER = vector<Piece>::const_iterator;
-        ITER isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
-            auto it = begin
+        ITER isIntersectPieces(ITER begin, ITER end, const Vector2i& pos, const Piece& piece) {
+            auto it = begin;
             for (; it != end; ++it) {
                 const Piece& p = *it;
                 if (Util::IsIntersect(
-                        piece.pos(), piece.width(), piece.height(),
-                        p.pos(), p.width(), p.height()
-                    )) {
+                    pos, piece.width(), piece.height(),
+                    p.pos(), p.width(), p.height()
+                )) {
                     return it;
                 }
             }
@@ -123,7 +191,24 @@ namespace hpc {
                 p2.pos(), p2.width(), p2.height()
             );
         }
+        inline bool isIntersectPieces(const Vector2i& v1, const Piece& p1, const Vector2i& v2, const Piece& p2) {
+            return Util::IsIntersect(
+                v1, p1.width(), p1.height(),
+                v2, p2.width(), p2.height()
+            );
+        }
+        inline bool isInArea(int areaWidth, int areaHeight, int x, int y, int width, int height) {
+            return 0 <= x && x + width <= areaWidth && 0 <= y && y + height <= areaHeight;
+        }
+        inline bool isInArea(const Oven& oven, int x, int y, int width, int height) {
+            return 0 <= x && x + width <= oven.width() && 0 <= y && y + height <= oven.height();
+        }
+        inline bool isInArea(const Oven& oven, const Vector2i& pos, const Piece& piece) {
+            return 0 <= pos.x && pos.x + piece.width() <= oven.width() && 0 <= pos.y && pos.y + piece.height() <= oven.height();
+        }
     }
+
+//------------------------------------------------------------------------------
     namespace algo {
 
         using History = list<pair<int, Vector2i>>;
@@ -249,17 +334,20 @@ namespace hpc {
 
 
         // 計算量はO*(N!)
-        History solvePlacementPiece(const Oven& oven, const vector<Piece>& pieces) {
+        History solvePlacementPiece(const int width, const vector<Piece>& placedPieces, const vector<Piece>& pieces) {
             
-            vector<Tag<int, Piece*>> shuffler;
+            vector<Tag<int, const Piece*>> shuffler;
             shuffler.reserve(pieces.size());
-            repeat(i, pieces.size()) shuffler.emplace_back(i, &pieces[i]);
+            for (auto p : make_IteratorWithIndex(ALL(pieces)))
+                shuffler.emplace_back(p.first, &p.second);
 
             int bestScore = 0;
             History best;
 
-            do {
-                vector<Piece> placed(ALL(oven.bakingPieces()));
+            repeat(_, 70) {
+                shuffle(ALL(shuffler), util::randdev);
+                list<Piece> placed(ALL(placedPieces));
+                // placed.reserve(placedPieces.size() + pieces.size());
 
                 int currScore = 0;
 
@@ -270,37 +358,41 @@ namespace hpc {
 
                 History result;
 
-                for (auto xy : DreamcastScan(oven.width())) {
+                for (auto xy : DreamcastScan(width)) {
                     int x = xy.first, y = xy.second;
 
+                    if (!util::isInArea(width, width, x, y, picked->second->width(), picked->second->height()))
+                        continue;
+
                     if (currIsec != placed.end()) {
-                        if (util::isIntersectPieces(*currIsec, *(picked->second)))
+                        if (util::isIntersectPieces(currIsec->pos(), *currIsec, Vector2i(x,y), *(picked->second)))
                             continue;
-                        else
-                            currIsec = placed.end();
                     }
 
-                    auto isec = util::isIntersectPieces(ALL(placed), *(picked->second));
+                    auto isec = util::isIntersectPieces(ALL(placed), Vector2i(x, y), *(picked->second));
 
-                    if (isec != placed.end()) {
-                        currIsec = isec;
-                    }
-                    else {
+                    if (isec == placed.end()) {
                         placed.push_back(*(picked->second));
-                        currScore += picked->second->score;
+                        currScore += picked->second->score();
                         result.emplace_back(picked->first, Vector2i(x, y));
                         ++picked;
+                        if (picked == shuffler.end()) break;
                     }
+                    currIsec = isec;
                 }
                 if (bestScore < currScore) {
                     bestScore = currScore;
                     best = move(result);
                 }
 
-            } while (next_permutation(ALL(shuffler)));
+            }
+
+            return best;
         }
 
-        
+
+        // void expandPiecesRandom(vector<Piece>& placedPieces) {
+        // }
     }
 //------------------------------------------------------------------------------
 /// コンストラクタ。
@@ -339,68 +431,63 @@ Action Answer::decideNextAction(const Stage& aStage)
     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
     auto& oven = aStage.oven();
 
-    vector<Piece> bakingLargePieces;
-    for (auto& p : oven.bakingPieces())
-        if (p.height() * p.width() >= 20) bakingLargePieces.push_back(p);
+    bool vflag = false; // TODO: 上手いこと実装
+    {
+        int hLong = 0, vLong = 0;
+        for (auto& p : laneS.pieces()) hLong += p.width(), vLong += p.height();
+        for (auto& p : laneL.pieces()) hLong += p.width(), vLong += p.height();
+        if (hLong *3 < vLong *2) vflag = true;
+    }
+
+    vector<Piece> bakingPieces(ALL(oven.bakingPieces()));
+    vector<Piece> bakingUnignorablePieces;
+    for (auto& p : bakingPieces)
+        if (p.restRequiredHeatTurnCount() > 8) bakingUnignorablePieces.push_back(p); // p.height() * p.width() >= 20
     
 
-    list<Tag<pair<int, int>, pair<int, Piece>>> pieces;
-    //repeat(i, laneS.pieces().count())
-    //    pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i + 8, laneS.pieces()[i]));
-    repeat(i, laneL.pieces().count())
-        pieces.emplace_back(make_pair(laneL.pieces()[i].height(), laneL.pieces()[i].width()), make_pair(i, laneL.pieces()[i]));
-    pieces.sort(greater<decltype(pieces)::value_type>());
+    vector<Piece> laneLPieces(ALL(laneL.pieces()));
+    vector<Piece> laneSPieces(ALL(laneS.pieces()));
 
-    Tag<int, Piece> largeBest(0, Piece());
-    while (true) {
-        auto mark = pieces.end();
-        for (auto it = pieces.begin(); it != pieces.end(); ++it) {
-            auto& p = *it;
-            const auto& piece = p.second.second;
+    // list<Tag<pair<int, int>, pair<int, Piece>>> pieces;
+    // //repeat(i, laneS.pieces().count())
+    // //    pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i + 8, laneS.pieces()[i]));
+    // repeat(i, laneL.pieces().count())
+    //     pieces.emplace_back(make_pair(laneL.pieces()[i].height(), laneL.pieces()[i].width()), make_pair(i, laneL.pieces()[i]));
+    // pieces.sort(greater<decltype(pieces)::value_type>());
 
-            auto i = p.second.first;
-            for (auto xy : DreamcastScan(oven.width())) {
-                int x = xy.first, y = xy.second;
-                if (util::isIntersectPieces(ALL(bakingLargePieces), piece) != bakingLargePieces.end()) {
-                    if (largeBest.first < piece.score()) {
-                        largeBest = decltype(largeBest)(piece.score(), piece);
-                        mark = it;
-                    }
-                }
-                if (oven.isAbleToPut(piece, Vector2i(x, y))) {
-                    return Action::Put(CandidateLaneType_Large, i, Vector2i(x, y));
-                }
-            }
-        }
+    auto placements = algo::solvePlacementPiece(oven.height(), bakingUnignorablePieces, laneLPieces);
 
-        if (largeBest.first > 0) {
-            bakingLargePieces.push_back(largeBest.second);
-            largeBest = decltype(largeBest)(0, Piece());
-            pieces.erase(mark);
-        }
-        else
-            break;
+    // TODO: sort placements
+
+    for (auto& p : placements) {
+        auto& piece = laneLPieces[p.first];
+        if (oven.isAbleToPut(piece, p.second))
+            return Action::Put(CandidateLaneType_Large, p.first, p.second);
+        // 無理やり載せる
+        bakingPieces.push_back(Piece(p.second, piece.width(), piece.height(), piece.restRequiredHeatTurnCount(), piece.score()));
     }
 
-    pieces.clear();
-    repeat(i, laneS.pieces().count())
-        pieces.emplace_back(make_pair(laneS.pieces()[i].height(), laneS.pieces()[i].width()), make_pair(i, laneS.pieces()[i]));
-    pieces.sort(greater<decltype(pieces)::value_type>());
+    int bestScore = 1e9;
+    Action best = Action::Wait();
 
-
-    for (auto p : pieces) {
-        const auto& piece = p.second.second;
-        auto i = p.second.first;
-        for (auto xy : DreamcastScan(oven.width())) {
+    for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
+        const auto& piece = p.second;
+        auto i = p.first;
+        // if (bestScore >= piece.score()) continue;
+        if (bestScore <= piece.restRequiredHeatTurnCount()) continue;
+        for (auto xy : WipeScan(oven.width())) {
             int x, y;
-            x = xy.first;
-            y = xy.second;
-            if (oven.isAbleToPut(piece, Vector2i(x, y))) {
-                return Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
+            y = xy.first;
+            x = oven.width() - 1 - xy.second;
+            if (vflag) swap(x, y);
+            if (util::isInArea(oven, Vector2i(x, y), piece) && util::isIntersectPieces(ALL(bakingPieces), Vector2i(x, y), piece) == bakingPieces.end()) {
+                bestScore = piece.restRequiredHeatTurnCount();
+                best = Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
+                break;
             }
         }
     }
-    return Action::Wait();
+    return best;
 }
 
 //------------------------------------------------------------------------------
