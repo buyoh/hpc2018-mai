@@ -39,6 +39,9 @@
 
 #include <cmath>
 
+#include <chrono>
+#include <iomanip>
+
 using namespace std;
 
 
@@ -354,11 +357,13 @@ namespace hpc {
 
             sort(ALL(shuffler));
 
+            vector<Piece> placed;
             repeat(_, 500) {
             //do{
                 shuffle(ALL(shuffler), util::randdev);
-                list<Piece> placed(ALL(placedPieces));
-                // placed.reserve(placedPieces.size() + pieces.size());
+                // list<Piece> placed(ALL(placedPieces));
+                placed = placedPieces;
+                //placed.reserve(placedPieces.size() + pieces.size());
 
                 int currScore = 0;
                 History result;
@@ -371,28 +376,28 @@ namespace hpc {
                     auto currIsec = placed.end();
 
                     for (auto yx : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode)) {
-                        int y = yx.first, x = yx.second;
+                        Vector2i vec(yx.second, yx.first);
                         //int x = yx.first, y = yx.second; // swap
 
-                        if (!util::isInArea(height, width, x, y, piece.width(), piece.height()))
+                        if (!util::isInArea(height, width, vec.x, vec.y, piece.width(), piece.height()))
                             continue;
 
                         if (currIsec != placed.end()) {
-                            if (util::isIntersectPieces(currIsec->pos(), *currIsec, Vector2i(x, y), piece))
+                            if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
                                 continue;
                         }
 
-                        auto isec = util::isIntersectPieces(ALL(placed), Vector2i(x, y), piece);
+                        auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
 
                         if (isec == placed.end()) {
                             // 置く．
-                            placed.emplace_back(Vector2i(x, y), piece.width(), piece.height(), 114, 514);
+                            placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
                             currScore += piece.score();
-                            result.emplace_back(picked.first, Vector2i(x, y));
+                            result.emplace_back(picked.first, vec);
                             break;
                         }
                         else {
-                            currIsec = isec;
+                            currIsec = move(isec);
                         }
                     }
                 }
@@ -414,7 +419,7 @@ namespace hpc {
 //------------------------------------------------------------------------------
 
     namespace mem {
-        static algo::History myCommandQueue;
+        static algo::History myLargeCommandQueue;
     }
 
 //------------------------------------------------------------------------------
@@ -422,6 +427,7 @@ namespace hpc {
 /// @detail 最初のステージ開始前に実行したい処理があればここに書きます。
 Answer::Answer()
 {
+    
 }
 
 //------------------------------------------------------------------------------
@@ -431,6 +437,7 @@ Answer::~Answer()
 {
 }
 
+decltype(chrono::system_clock::now()) bmLastTime;
 //------------------------------------------------------------------------------
 /// 各ステージ開始時に呼び出される処理。
 /// @detail 各ステージに対する初期化処理が必要ならここに書きます。
@@ -438,7 +445,8 @@ Answer::~Answer()
 void Answer::init(const Stage& aStage)
 {
     clog << "ready\n";
-    mem::myCommandQueue.clear();
+    mem::myLargeCommandQueue.clear();
+    bmLastTime = chrono::system_clock::now();
 }
 
 
@@ -481,32 +489,32 @@ Action Answer::decideNextAction(const Stage& aStage)
     //     pieces.emplace_back(make_pair(laneL.pieces()[i].height(), laneL.pieces()[i].width()), make_pair(i, laneL.pieces()[i]));
     // pieces.sort(greater<decltype(pieces)::value_type>());
 
-    if (mem::myCommandQueue.empty()) {
+    if (mem::myLargeCommandQueue.empty()) {
         auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces);
 
         placements.sort([&laneLPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
             return laneLPieces[p1.first].requiredHeatTurnCount() > laneLPieces[p2.first].requiredHeatTurnCount();
         });
-        mem::myCommandQueue = move(placements);
+        mem::myLargeCommandQueue = move(placements);
     }
 
     // if (!placements.empty()) {
     //     int hscore = 0, cscore = 0;
-    //     for (auto& p : myCommandQueue) hscore += laneLPieces[p.first].score();
+    //     for (auto& p : myLargeCommandQueue) hscore += laneLPieces[p.first].score();
     //     for (auto& p : placements) cscore += laneLPieces[p.first].score();
     //     if (hscore < cscore) {
-    //         myCommandQueue = move(placements);
+    //         myLargeCommandQueue = move(placements);
     //     }
     // }
     // TODO: sort placements
     
-    iterate (it, mem::myCommandQueue.begin(), mem::myCommandQueue.end()) {
+    iterate (it, mem::myLargeCommandQueue.begin(), mem::myLargeCommandQueue.end()) {
         auto p = *it;
         auto& piece = laneLPieces[p.first];
         if (oven.isAbleToPut(piece, p.second)) {
-            for (auto& q : mem::myCommandQueue)
+            for (auto& q : mem::myLargeCommandQueue)
                 if (q.first > p.first) --q.first;
-            mem::myCommandQueue.erase(it);
+            mem::myLargeCommandQueue.erase(it);
             return Action::Put(CandidateLaneType_Large, p.first, p.second);
         }
         // 無理やり載せる
@@ -542,7 +550,7 @@ Action Answer::decideNextAction(const Stage& aStage)
 /// @param aStage 現在のステージ。
 void Answer::finalize(const Stage& aStage)
 {
+    clog << scientific << setprecision(2) << double((chrono::system_clock::now() - bmLastTime).count()) << endl;
 }
-
 } // namespace
 // EOF
