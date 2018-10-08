@@ -9,3 +9,4 @@ my_utils/tmp/*
 *.suo
 *.pdb
 *.vcproj.user
+/HPC2018.vcxproj.user
