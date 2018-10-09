@@ -75,6 +75,18 @@ namespace hpc {
     };
 
 
+    struct XorShift {
+        using result_type = uint64_t;
+        result_type x_;
+        XorShift(result_type x = 88172645463325252ull) :x_(x) {};
+        static constexpr inline result_type min() noexcept { return 0ull; }
+        static constexpr inline result_type max() { return numeric_limits<result_type>::max(); }
+        inline result_type operator()() noexcept { x_ ^= x_ << 7; return x_ ^= x_ >> 9; }
+        inline void discard(unsigned long long z) noexcept { while (z--) operator()(); }
+    };
+    XorShift randdev;
+
+
     class DreamcastScan {
         const int Height, Width;
     public:
@@ -160,7 +172,8 @@ namespace hpc {
 
 //------------------------------------------------------------------------------
     namespace util {
-        static mt19937_64 randdev(8901016);
+        // static mt19937_64 randdev(8901016);
+        static XorShift randdev;
 
         // 
         template<typename T> inline T rand(T l, T h) { return uniform_int_distribution<T>(l, h)(randdev); }
