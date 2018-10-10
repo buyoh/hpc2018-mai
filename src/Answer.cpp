@@ -255,132 +255,17 @@ namespace hpc {
         static int ScanMode = 0;
     }
 
+    namespace analysis {
+        map<vector<int>, int> counter;
+    }
+
 //------------------------------------------------------------------------------
     namespace algo {
 
         using History = vector<pair<int, Vector2i>>;
 
-        // struct StateData {
-        //     Oven oven;
-        //     History history;
-        //     StateData(Oven&& o) :oven(o) {}
-        //     StateData(Oven&& o, const decltype(history)& h)
-        //         :oven(o), history(h) {}
-        // };
-        // 
-        // using State = Tag<int, StateData>;
-        // // TLE
-        // pair<int, Vector2i> chokudaiSearch(const Stage& aStage) {
-        //     // assert(laneS.pieces().count() == 8);
-        // 
-        //     auto& laneS = aStage.candidateLane(CandidateLaneType_Small);
-        //     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
-        //     vector<Piece> pieces; pieces.reserve(16);
-        //     for (auto& p : laneS.pieces()) pieces.push_back(p);
-        //     for (auto& p : laneL.pieces()) pieces.push_back(p);
-        //     list<Piece> cookies;
-        // 
-        //     auto& oven = aStage.oven();
-        //     
-        //     priority_queue<State> beamStack[20];
-        //     beamStack[0].emplace(0, StateData(Oven(oven)));
-        // 
-        //     int bestScore = 0;
-        //     History bestHistory;
-        // 
-        //     repeat(_, 10) {
-        //         repeat(depth, 16) {
-        //             if (beamStack[depth].empty()) continue;
-        //             auto currData = move(beamStack[depth].top().second);
-        //             int currScore = beamStack[depth].top().first;
-        //             beamStack[depth].pop();
-        // 
-        //             if (currData.history.size() >= 4) continue; // 深いところまでやらない
-        // 
-        //             auto& piece = pieces[depth];
-        //             const auto& currOven = currData.oven;
-        // 
-        //             repeat(y, currOven.height() - piece.height() + 1) {
-        //                 repeat(x, currOven.width() - piece.width() + 1) {
-        //                     if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
-        // 
-        //                     auto newData = currData;
-        //                     cookies.push_back(piece);
-        //                     newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
-        //                     newData.oven.bakeAndDiscard();
-        //                     newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
-        // 
-        //                     int newScore = currScore + piece.height()*piece.width();
-        //                     if (newScore > bestScore) {
-        //                         bestScore = newScore;
-        //                         bestHistory = newData.history;
-        //                     }
-        //                     beamStack[depth + 1].emplace(newScore, move(newData));
-        //                 }
-        //             }
-        //             currData.oven.bakeAndDiscard();
-        //             beamStack[depth + 1].emplace(currScore, move(currData));
-        //         }
-        //     }
-        // 
-        //     return bestHistory.front();
-        // }
-        // 
-        // 
-        // History chokudaiSearchLarge(const Stage& aStage) {
-        //     // assert(laneS.pieces().count() == 8);
-        // 
-        //     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
-        //     vector<Piece> pieces; pieces.reserve(16);
-        //     for (auto& p : laneL.pieces()) pieces.push_back(p);
-        //     list<Piece> cookies;
-        // 
-        //     auto& oven = aStage.oven();
-        // 
-        //     priority_queue<State> beamStack[20];
-        //     beamStack[0].emplace(0, StateData(Oven(oven)));
-        // 
-        //     int bestScore = 0;
-        //     History bestHistory;
-        // 
-        //     repeat(_, 10) {
-        //         repeat(depth, 8) {
-        //             if (beamStack[depth].empty()) continue;
-        //             auto currData = move(beamStack[depth].top().second);
-        //             int currScore = beamStack[depth].top().first;
-        //             beamStack[depth].pop();
-        // 
-        //             auto& piece = pieces[depth];
-        //             const auto& currOven = currData.oven;
-        // 
-        //             repeat(y, currOven.height() - piece.height() + 1) {
-        //                 repeat(x, currOven.width() - piece.width() + 1) {
-        //                     if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
-        // 
-        //                     auto newData = currData;
-        //                     cookies.push_back(piece);
-        //                     newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
-        //                     newData.oven.bakeAndDiscard();
-        //                     newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
-        // 
-        //                     int newScore = currScore + piece.height()*piece.width();
-        //                     if (newScore > bestScore) {
-        //                         bestScore = newScore;
-        //                         bestHistory = newData.history;
-        //                     }
-        //                     beamStack[depth + 1].emplace(newScore, move(newData));
-        //                 }
-        //             }
-        //             currData.oven.bakeAndDiscard();
-        //             beamStack[depth + 1].emplace(currScore, move(currData));
-        //         }
-        //     }
-        // 
-        //     return bestHistory;
-        // }
 
-
-        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
+        History solvePlacementPiece2(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
             
             vector<Tag<int, const Piece*>> shuffler;
             shuffler.reserve(pieces.size());
@@ -440,6 +325,83 @@ namespace hpc {
 
             } //while (next_permutation(ALL(shuffler)));
 
+            analysis::counter[vector<int>{(int)best.size(), minLoopcount}]++;
+            return best;
+        }
+
+
+        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
+
+            vector<Tag<int, const Piece*>> shuffler;
+            shuffler.reserve(pieces.size());
+            for (auto p : make_IteratorWithIndex(ALL(pieces)))
+                shuffler.emplace_back(p.first, &p.second);
+
+            int bestScore = 0;
+            History best;
+
+            sort(ALL(shuffler));
+
+            auto dfs = 
+                [&width, &height, &shuffler, &bestScore, &best]
+            (auto dfs, vector<int>& indices, vector<Piece>& placed, History& currResult, int currScore) -> void {
+
+                if (bestScore < currScore) {
+                    bestScore = currScore;
+                    best = currResult;
+                }
+
+                repeat(i, indices.size()) {
+                    int idx = indices[i];
+                    if (idx < 0) continue;
+                    auto& picked = shuffler[idx];
+
+                    // 今置こうとしている
+                    auto& piece = *picked.second;
+                    // 直前の検証で重なった
+                    auto currIsec = placed.end();
+
+                    Vector2i lastPos(-1, -1);
+                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode)) {
+                        //int x = yx.first, y = yx.second; // swap
+
+                        if (currIsec != placed.end()) {
+                            if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
+                                continue;
+                        }
+
+                        auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
+
+                        if (isec == placed.end()) {
+                            // 置く．
+                            lastPos = vec;
+                            placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
+                            currScore += piece.score();
+                            currResult.emplace_back(picked.first, vec);
+                            indices[i] = -1;
+
+                            dfs(dfs, indices, placed, currResult, currScore);
+
+                            indices[i] = idx;
+                            currResult.pop_back();
+                            currScore -= piece.score();
+                            placed.pop_back();
+                            break;
+                        }
+                        else {
+                            currIsec = move(isec);
+                        }
+                    }
+                }
+            };
+
+            vector<Piece> placed = placedPieces;
+            vector<int> indices(shuffler.size()); iota(ALL(indices), 0);
+            History currResult;
+            dfs(dfs, indices, placed, currResult, 0);
+
+
+            analysis::counter[vector<int>{(int)best.size(), minLoopcount}]++;
             return best;
         }
 
@@ -483,6 +445,24 @@ void Answer::init(const Stage& aStage)
     bmLastTime = chrono::system_clock::now();
 }
 
+//------------------------------------------------------------------------------
+/// 各ステージ終了時に呼び出される処理。
+/// @detail 各ステージに対する終了処理が必要ならここに書きます。
+/// @param aStage 現在のステージ。
+void Answer::finalize(const Stage& aStage)
+{
+    clog << "counter:\n";
+    for (auto p : analysis::counter) {
+        clog << '[';
+        for (auto v : p.first)
+            clog << ' ' << v << ' ';
+        clog << "]:" << p.second << '\n';
+    }
+    clog << "time\n";
+    clog << scientific << setprecision(2) << double((chrono::system_clock::now() - bmLastTime).count()) << '\n';
+
+    clog << endl;
+}
 
 //------------------------------------------------------------------------------
 /// このターンでの行動を指定する。
@@ -532,7 +512,7 @@ Action Answer::decideNextAction(const Stage& aStage)
         //         usePiecesIndexS.push_back(p.first),
         //         usePieces.push_back(p.second);
         // }
-        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces, 700, 150);
+        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces, 700, 140);
 
         if (!placements.empty()) {
 
@@ -621,7 +601,7 @@ Action Answer::decideNextAction(const Stage& aStage)
 
     if (mem::mySmallCommandQueue.empty()) {
 
-        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingPieces, laneSPieces, 700, 150);
+        auto placements = algo::solvePlacementPiece2(oven.width(), oven.height(), bakingPieces, laneSPieces, 700, 150);
 
         sort(ALL(placements), [&laneSPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
             int x1 = laneSPieces[p1.first].requiredHeatTurnCount()-1,
@@ -650,13 +630,5 @@ Action Answer::decideNextAction(const Stage& aStage)
     return Action::Wait();
 }
 
-//------------------------------------------------------------------------------
-/// 各ステージ終了時に呼び出される処理。
-/// @detail 各ステージに対する終了処理が必要ならここに書きます。
-/// @param aStage 現在のステージ。
-void Answer::finalize(const Stage& aStage)
-{
-    clog << scientific << setprecision(2) << double((chrono::system_clock::now() - bmLastTime).count()) << endl;
 }
-} // namespace
 // EOF
