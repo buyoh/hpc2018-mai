@@ -20,6 +20,7 @@
 #include <array>
 #include <deque>
 #include <list>
+#include <forward_list>
 #include <queue>
 #include <stack>
 #include <vector>
@@ -124,29 +125,33 @@ namespace hpc {
         const int Height, Width;
         const bool Tr;
     public:
-        constexpr WipeScan(int _h, int _w, bool _tr = false) :Height(_h), Width(_w), Tr(_tr) {}
         struct Iterator {
             const int h, w; // width
             int i, j; // index
             const bool tr;
             constexpr Iterator(int _h, int _w, int _i, int _j, bool _tr) :h(_h), w(_w), i(_i), j(_j), tr(_tr) {}
 
-            inline pair<int, int> operator*() const {
-                return make_pair(i & 1 ? h - 1 - i / 2 : i / 2, j & 1 ? w - 1 - j / 2 : j / 2);
+            // inline pair<int, int> operator*() const {
+            //     return make_pair(i & 1 ? h - 1 - (i >> 1) : (i >> 1), j & 1 ? w - 1 - (j >> 1) : (j >> 1));
+            // }
+            inline Vector2i operator*() const {
+                return Vector2i(j & 1 ? w - 1 - (j >> 1) : (j >> 1), i & 1 ? h - 1 - (i >> 1) : (i >> 1));
             }
-            inline Iterator& operator++() {
+            inline Iterator& operator++() noexcept {
                 if (!tr && ++j >= w) j = 0, ++i;
-                if (tr && ++i >= h) i = 0, ++j;
+                else if (tr && ++i >= h) i = 0, ++j;
                 return *this;
             }
-            inline bool operator!=(const Iterator& another) const {
+            inline bool operator!=(const Iterator& another) const noexcept {
                 return w != another.w || i != another.i || j != another.j;
 
             }
         };
+        constexpr WipeScan(int _h, int _w, bool _tr = false) :Height(_h), Width(_w), Tr(_tr) {}
         constexpr inline Iterator begin() const { return Iterator(Height, Width, 0, 0, Tr); }
         constexpr inline Iterator end() const { return Iterator(Height, Width, Tr ? 0 : Height, Tr ? Width : 0, Tr); }
     };
+
 
     template<typename ITER>
     class IteratorWithIndex {
@@ -179,7 +184,26 @@ namespace hpc {
         template<typename T> inline T rand(T l, T h) { return uniform_int_distribution<T>(l, h)(randdev); }
         template<> inline double rand<double>(double l, double h) { return uniform_real_distribution<double>(l, h)(util::randdev); }
         template<> inline float rand<float>(float l, float h) { return uniform_real_distribution<float>(l, h)(util::randdev); }
-
+        
+        // noassertion
+        inline bool isIntersect(
+            const Vector2i& aLhsPos, int aLhsWidth, int aLhsHeight,
+            const Vector2i& aRhsPos,int aRhsWidth, int aRhsHeight) noexcept {
+            return 
+                aLhsPos.x < aRhsPos.x + aRhsWidth &&
+                aLhsPos.y < aRhsPos.y + aRhsHeight &&
+                aRhsPos.x < aLhsPos.x + aLhsWidth &&
+                aRhsPos.y < aLhsPos.y + aLhsHeight;
+        }
+        inline bool isIntersect(
+            int aLhsPos_x, int aLhsPos_y, int aLhsWidth, int aLhsHeight,
+            int aRhsPos_x, int aRhsPos_y, int aRhsWidth, int aRhsHeight) noexcept {
+            return 
+                aLhsPos_x < aRhsPos_x + aRhsWidth &&
+                aLhsPos_y < aRhsPos_y + aRhsHeight &&
+                aRhsPos_x < aLhsPos_x + aLhsWidth &&
+                aRhsPos_y < aLhsPos_y + aLhsHeight;
+        }
 
         // @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
@@ -190,28 +214,26 @@ namespace hpc {
         // @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
         //using ITER = vector<Piece>::const_iterator;
-        ITER isIntersectPieces(ITER begin, ITER end, const Vector2i& pos, const Piece& piece) {
-            auto it = begin;
-            for (; it != end; ++it) {
-                const Piece& p = *it;
-                if (Util::IsIntersect(
+        inline ITER isIntersectPieces(ITER begin, ITER end, const Vector2i& pos, const Piece& piece) {
+            for (; begin != end; ++begin) {
+                if (util::isIntersect(
                     pos, piece.width(), piece.height(),
-                    p.pos(), p.width(), p.height()
+                    begin->pos(), begin->width(), begin->height()
                 )) {
-                    return it;
+                    return move(begin);
                 }
             }
-            return it;
+            return move(begin);
         }
 
         inline bool isIntersectPieces(const Piece& p1, const Piece& p2) {
-            return Util::IsIntersect(
+            return util::isIntersect(
                 p1.pos(), p1.width(), p1.height(),
                 p2.pos(), p2.width(), p2.height()
             );
         }
         inline bool isIntersectPieces(const Vector2i& v1, const Piece& p1, const Vector2i& v2, const Piece& p2) {
-            return Util::IsIntersect(
+            return util::isIntersect(
                 v1, p1.width(), p1.height(),
                 v2, p2.width(), p2.height()
             );
@@ -236,129 +258,129 @@ namespace hpc {
 //------------------------------------------------------------------------------
     namespace algo {
 
-        using History = list<pair<int, Vector2i>>;
+        using History = vector<pair<int, Vector2i>>;
 
-        struct StateData {
-            Oven oven;
-            History history;
-            StateData(Oven&& o) :oven(o) {}
-            StateData(Oven&& o, const decltype(history)& h)
-                :oven(o), history(h) {}
-        };
+        // struct StateData {
+        //     Oven oven;
+        //     History history;
+        //     StateData(Oven&& o) :oven(o) {}
+        //     StateData(Oven&& o, const decltype(history)& h)
+        //         :oven(o), history(h) {}
+        // };
+        // 
+        // using State = Tag<int, StateData>;
+        // // TLE
+        // pair<int, Vector2i> chokudaiSearch(const Stage& aStage) {
+        //     // assert(laneS.pieces().count() == 8);
+        // 
+        //     auto& laneS = aStage.candidateLane(CandidateLaneType_Small);
+        //     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
+        //     vector<Piece> pieces; pieces.reserve(16);
+        //     for (auto& p : laneS.pieces()) pieces.push_back(p);
+        //     for (auto& p : laneL.pieces()) pieces.push_back(p);
+        //     list<Piece> cookies;
+        // 
+        //     auto& oven = aStage.oven();
+        //     
+        //     priority_queue<State> beamStack[20];
+        //     beamStack[0].emplace(0, StateData(Oven(oven)));
+        // 
+        //     int bestScore = 0;
+        //     History bestHistory;
+        // 
+        //     repeat(_, 10) {
+        //         repeat(depth, 16) {
+        //             if (beamStack[depth].empty()) continue;
+        //             auto currData = move(beamStack[depth].top().second);
+        //             int currScore = beamStack[depth].top().first;
+        //             beamStack[depth].pop();
+        // 
+        //             if (currData.history.size() >= 4) continue; // 深いところまでやらない
+        // 
+        //             auto& piece = pieces[depth];
+        //             const auto& currOven = currData.oven;
+        // 
+        //             repeat(y, currOven.height() - piece.height() + 1) {
+        //                 repeat(x, currOven.width() - piece.width() + 1) {
+        //                     if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
+        // 
+        //                     auto newData = currData;
+        //                     cookies.push_back(piece);
+        //                     newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
+        //                     newData.oven.bakeAndDiscard();
+        //                     newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
+        // 
+        //                     int newScore = currScore + piece.height()*piece.width();
+        //                     if (newScore > bestScore) {
+        //                         bestScore = newScore;
+        //                         bestHistory = newData.history;
+        //                     }
+        //                     beamStack[depth + 1].emplace(newScore, move(newData));
+        //                 }
+        //             }
+        //             currData.oven.bakeAndDiscard();
+        //             beamStack[depth + 1].emplace(currScore, move(currData));
+        //         }
+        //     }
+        // 
+        //     return bestHistory.front();
+        // }
+        // 
+        // 
+        // History chokudaiSearchLarge(const Stage& aStage) {
+        //     // assert(laneS.pieces().count() == 8);
+        // 
+        //     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
+        //     vector<Piece> pieces; pieces.reserve(16);
+        //     for (auto& p : laneL.pieces()) pieces.push_back(p);
+        //     list<Piece> cookies;
+        // 
+        //     auto& oven = aStage.oven();
+        // 
+        //     priority_queue<State> beamStack[20];
+        //     beamStack[0].emplace(0, StateData(Oven(oven)));
+        // 
+        //     int bestScore = 0;
+        //     History bestHistory;
+        // 
+        //     repeat(_, 10) {
+        //         repeat(depth, 8) {
+        //             if (beamStack[depth].empty()) continue;
+        //             auto currData = move(beamStack[depth].top().second);
+        //             int currScore = beamStack[depth].top().first;
+        //             beamStack[depth].pop();
+        // 
+        //             auto& piece = pieces[depth];
+        //             const auto& currOven = currData.oven;
+        // 
+        //             repeat(y, currOven.height() - piece.height() + 1) {
+        //                 repeat(x, currOven.width() - piece.width() + 1) {
+        //                     if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
+        // 
+        //                     auto newData = currData;
+        //                     cookies.push_back(piece);
+        //                     newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
+        //                     newData.oven.bakeAndDiscard();
+        //                     newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
+        // 
+        //                     int newScore = currScore + piece.height()*piece.width();
+        //                     if (newScore > bestScore) {
+        //                         bestScore = newScore;
+        //                         bestHistory = newData.history;
+        //                     }
+        //                     beamStack[depth + 1].emplace(newScore, move(newData));
+        //                 }
+        //             }
+        //             currData.oven.bakeAndDiscard();
+        //             beamStack[depth + 1].emplace(currScore, move(currData));
+        //         }
+        //     }
+        // 
+        //     return bestHistory;
+        // }
 
-        using State = Tag<int, StateData>;
-        // TLE
-        pair<int, Vector2i> chokudaiSearch(const Stage& aStage) {
-            // assert(laneS.pieces().count() == 8);
 
-            auto& laneS = aStage.candidateLane(CandidateLaneType_Small);
-            auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
-            vector<Piece> pieces; pieces.reserve(16);
-            for (auto& p : laneS.pieces()) pieces.push_back(p);
-            for (auto& p : laneL.pieces()) pieces.push_back(p);
-            list<Piece> cookies;
-
-            auto& oven = aStage.oven();
-            
-            priority_queue<State> beamStack[20];
-            beamStack[0].emplace(0, StateData(Oven(oven)));
-
-            int bestScore = 0;
-            History bestHistory;
-
-            repeat(_, 10) {
-                repeat(depth, 16) {
-                    if (beamStack[depth].empty()) continue;
-                    auto currData = move(beamStack[depth].top().second);
-                    int currScore = beamStack[depth].top().first;
-                    beamStack[depth].pop();
-
-                    if (currData.history.size() >= 4) continue; // 深いところまでやらない
-
-                    auto& piece = pieces[depth];
-                    const auto& currOven = currData.oven;
-
-                    repeat(y, currOven.height() - piece.height() + 1) {
-                        repeat(x, currOven.width() - piece.width() + 1) {
-                            if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
-
-                            auto newData = currData;
-                            cookies.push_back(piece);
-                            newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
-                            newData.oven.bakeAndDiscard();
-                            newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
-
-                            int newScore = currScore + piece.height()*piece.width();
-                            if (newScore > bestScore) {
-                                bestScore = newScore;
-                                bestHistory = newData.history;
-                            }
-                            beamStack[depth + 1].emplace(newScore, move(newData));
-                        }
-                    }
-                    currData.oven.bakeAndDiscard();
-                    beamStack[depth + 1].emplace(currScore, move(currData));
-                }
-            }
-
-            return bestHistory.front();
-        }
-
-
-        History chokudaiSearchLarge(const Stage& aStage) {
-            // assert(laneS.pieces().count() == 8);
-
-            auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
-            vector<Piece> pieces; pieces.reserve(16);
-            for (auto& p : laneL.pieces()) pieces.push_back(p);
-            list<Piece> cookies;
-
-            auto& oven = aStage.oven();
-
-            priority_queue<State> beamStack[20];
-            beamStack[0].emplace(0, StateData(Oven(oven)));
-
-            int bestScore = 0;
-            History bestHistory;
-
-            repeat(_, 10) {
-                repeat(depth, 8) {
-                    if (beamStack[depth].empty()) continue;
-                    auto currData = move(beamStack[depth].top().second);
-                    int currScore = beamStack[depth].top().first;
-                    beamStack[depth].pop();
-
-                    auto& piece = pieces[depth];
-                    const auto& currOven = currData.oven;
-
-                    repeat(y, currOven.height() - piece.height() + 1) {
-                        repeat(x, currOven.width() - piece.width() + 1) {
-                            if (!currOven.isAbleToPut(piece, Vector2i(x, y))) continue;
-
-                            auto newData = currData;
-                            cookies.push_back(piece);
-                            newData.oven.tryToBake(&cookies.back(), Vector2i(x, y));
-                            newData.oven.bakeAndDiscard();
-                            newData.history.emplace_back(int8_t(depth), Vector2i(x, y));
-
-                            int newScore = currScore + piece.height()*piece.width();
-                            if (newScore > bestScore) {
-                                bestScore = newScore;
-                                bestHistory = newData.history;
-                            }
-                            beamStack[depth + 1].emplace(newScore, move(newData));
-                        }
-                    }
-                    currData.oven.bakeAndDiscard();
-                    beamStack[depth + 1].emplace(currScore, move(currData));
-                }
-            }
-
-            return bestHistory;
-        }
-
-
-        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces) {
+        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
             
             vector<Tag<int, const Piece*>> shuffler;
             shuffler.reserve(pieces.size());
@@ -366,20 +388,20 @@ namespace hpc {
                 shuffler.emplace_back(p.first, &p.second);
 
             int bestScore = 0;
-            History best;
+            History best, currResult;
 
             sort(ALL(shuffler));
 
             vector<Piece> placed;
-            repeat(_, 500) {
+            repeat(loopcnt, maxLoopcount) {
             //do{
                 shuffle(ALL(shuffler), util::randdev);
                 // list<Piece> placed(ALL(placedPieces));
                 placed = placedPieces;
-                //placed.reserve(placedPieces.size() + pieces.size());
+                //placed.reserve(placedPieces.size() + pieces.size());2458764
 
                 int currScore = 0;
-                History result;
+                currResult.clear();
 
                 for (auto picked : shuffler) {
 
@@ -388,12 +410,8 @@ namespace hpc {
                     // 直前の検証で重なった
                     auto currIsec = placed.end();
 
-                    for (auto yx : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode)) {
-                        Vector2i vec(yx.second, yx.first);
+                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(loopcnt&31))) {
                         //int x = yx.first, y = yx.second; // swap
-
-                        if (!util::isInArea(height, width, vec.x, vec.y, piece.width(), piece.height()))
-                            continue;
 
                         if (currIsec != placed.end()) {
                             if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
@@ -406,7 +424,7 @@ namespace hpc {
                             // 置く．
                             placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
                             currScore += piece.score();
-                            result.emplace_back(picked.first, vec);
+                            currResult.emplace_back(picked.first, vec);
                             break;
                         }
                         else {
@@ -416,8 +434,9 @@ namespace hpc {
                 }
                 if (bestScore < currScore) {
                     bestScore = currScore;
-                    best = move(result);
+                    best = move(currResult);
                 }
+                if (loopcnt == minLoopcount && best.size() <= 2) break;
 
             } //while (next_permutation(ALL(shuffler)));
 
@@ -433,6 +452,7 @@ namespace hpc {
 
     namespace mem {
         static algo::History myLargeCommandQueue;
+        static algo::History mySmallCommandQueue;
     }
 
 //------------------------------------------------------------------------------
@@ -459,6 +479,7 @@ void Answer::init(const Stage& aStage)
 {
     clog << "ready\n";
     mem::myLargeCommandQueue.clear();
+    mem::mySmallCommandQueue.clear();
     bmLastTime = chrono::system_clock::now();
 }
 
@@ -503,12 +524,29 @@ Action Answer::decideNextAction(const Stage& aStage)
     // pieces.sort(greater<decltype(pieces)::value_type>());
 
     if (mem::myLargeCommandQueue.empty()) {
-        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces);
+        // TODO
+        // vector<Piece> usePieces = laneLPieces;
+        // vector<int> usePiecesIndexS;
+        // for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
+        //     if (p.second.restRequiredHeatTurnCount() > 10)
+        //         usePiecesIndexS.push_back(p.first),
+        //         usePieces.push_back(p.second);
+        // }
+        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces, 700, 150);
 
-        placements.sort([&laneLPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
-            return laneLPieces[p1.first].requiredHeatTurnCount() > laneLPieces[p2.first].requiredHeatTurnCount();
-        });
-        mem::myLargeCommandQueue = move(placements);
+        if (!placements.empty()) {
+
+            sort(ALL(placements), [&laneLPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
+                return laneLPieces[p1.first].requiredHeatTurnCount() > laneLPieces[p2.first].requiredHeatTurnCount();
+            });
+            // placements.sort([&laneLPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
+            //     return laneLPieces[p1.first].requiredHeatTurnCount() > laneLPieces[p2.first].requiredHeatTurnCount();
+            // });
+            mem::mySmallCommandQueue.clear(),
+            mem::myLargeCommandQueue = move(placements);
+        }
+    }
+    else{
     }
 
     // if (!placements.empty()) {
@@ -528,33 +566,88 @@ Action Answer::decideNextAction(const Stage& aStage)
             for (auto& q : mem::myLargeCommandQueue)
                 if (q.first > p.first) --q.first;
             mem::myLargeCommandQueue.erase(it);
+            
             return Action::Put(CandidateLaneType_Large, p.first, p.second);
         }
         // 無理やり載せる
         bakingPieces.emplace_back(p.second, piece.width(), piece.height(), piece.restRequiredHeatTurnCount(), piece.score());
     }
 
-    int bestScore = 1e9;
-    Action best = Action::Wait();
+    {
+        int bestScore = 0;
+        Action best = Action::Wait();
 
-    for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
-        const auto& piece = p.second;
-        auto i = p.first;
-        // if (bestScore >= piece.score()) continue;
-        if (bestScore <= piece.restRequiredHeatTurnCount()) continue;
-        for (auto xy : WipeScan(oven.height() + 1 - piece.height(), oven.width() + 1 - piece.width(), mem::ScanMode)) {
-            int x, y;
-            y = xy.first;
-            x = xy.second;
-            //if (!vflag) swap(x, y);
-            if (util::isInArea(oven, Vector2i(x, y), piece) && util::isIntersectPieces(ALL(bakingPieces), Vector2i(x, y), piece) == bakingPieces.end()) {
-                bestScore = piece.restRequiredHeatTurnCount();
-                best = Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
-                break;
+        for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
+            const auto& piece = p.second;
+            auto i = p.first;
+            if (piece.restRequiredHeatTurnCount() != 1) continue;
+            int score = (piece.score());
+            if (bestScore >= score) continue;
+            for (Vector2i vec : WipeScan(oven.height() + 1 - piece.height(), oven.width() + 1 - piece.width(), mem::ScanMode)) {
+                if (oven.isAbleToPut(piece, vec)) {
+                    bestScore = score;
+                    best = Action::Put(CandidateLaneType_Small, i, vec);
+                    break;
+                }
             }
         }
+        if (bestScore > 0) return best;
     }
-    return best;
+    // {
+    //     pair<int, int> bestScore(1e9, 0);
+    //     Action best = Action::Wait();
+    // 
+    //     for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
+    //         const auto& piece = p.second;
+    //         auto i = p.first;
+    //         if (piece.restRequiredHeatTurnCount() >= 4) continue;
+    //         pair<int, int> score(piece.restRequiredHeatTurnCount(), piece.width() + piece.height() + max(piece.width(), piece.height()));
+    //         if (bestScore <= score) continue;
+    //         for (auto xy : WipeScan(oven.height() + 1 - piece.height(), oven.width() + 1 - piece.width(), mem::ScanMode)) {
+    //             int x, y;
+    //             y = xy.first;
+    //             x = xy.second;
+    //             if (oven.isAbleToPut(piece, Vector2i(x, y)) && util::isIntersectPieces(ALL(bakingPieces), Vector2i(x, y), piece) == bakingPieces.end()) {
+    //                 bestScore = score;
+    //                 best = Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     if (bestScore.first < 99) return best;
+    // }
+
+
+
+    if (mem::mySmallCommandQueue.empty()) {
+
+        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingPieces, laneSPieces, 700, 150);
+
+        sort(ALL(placements), [&laneSPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
+            int x1 = laneSPieces[p1.first].requiredHeatTurnCount()-1,
+                x2 = laneSPieces[p2.first].requiredHeatTurnCount()-1;
+            return x1/3 == x2/3 ? x1 > x2 : x1 < x2;
+        });
+        // placements.sort([&laneSPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
+        //     int x1 = laneSPieces[p1.first].requiredHeatTurnCount() - 1,
+        //         x2 = laneSPieces[p2.first].requiredHeatTurnCount() - 1;
+        //     return x1 / 3 == x2 / 3 ? x1 > x2 : x1 < x2;
+        // });
+        mem::mySmallCommandQueue = move(placements);
+    }
+
+    iterate(it, mem::mySmallCommandQueue.begin(), mem::mySmallCommandQueue.end()) {
+        auto p = *it;
+        auto& piece = laneSPieces[p.first];
+        if (oven.isAbleToPut(piece, p.second)) {
+            for (auto& q : mem::mySmallCommandQueue)
+                if (q.first > p.first) --q.first;
+            mem::mySmallCommandQueue.erase(it);
+            return Action::Put(CandidateLaneType_Small, p.first, p.second);
+        }
+    }
+
+    return Action::Wait();
 }
 
 //------------------------------------------------------------------------------
