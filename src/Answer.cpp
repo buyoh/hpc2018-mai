@@ -55,6 +55,18 @@ using namespace std;
 #define diterate(cnt,b,e) for(auto cnt=(b);(cnt)!=(e);--(cnt))
 
 
+/*
+
+
+TODO:
+
+- 90以上のピースを無視する
+
+
+
+
+*/
+
 //------------------------------------------------------------------------------
 namespace hpc {
 
@@ -98,11 +110,11 @@ namespace hpc {
             int i, o; // index, offset
             constexpr Iterator(int _h, int _w, int _i, int _o) :h(_h), w(_w), i(_i), o(_o) {}
 
-            inline pair<int, int> operator*() const {
-                if (i < w - 1) return make_pair(o, o + i);
-                else if (i < (w - 1) + (h - 1)) return make_pair(o + i - (w - 1), o + w - 1);
-                else if (i < (w - 1) * 2 + (h - 1)) return make_pair(o + h - 1, o + (w - 1) * 2 + (h - 1) - i);
-                else return make_pair(o + (w - 1) * 2 + (h - 1) * 2 - i, o);
+            inline Vector2i operator*() const {
+                if (i < w - 1) return Vector2i(o + i, o);
+                else if (i < (w - 1) + (h - 1)) Vector2i(o + w - 1, o + i - (w - 1));
+                else if (i < (w - 1) * 2 + (h - 1)) Vector2i(o + (w - 1) * 2 + (h - 1) - i, o + h - 1);
+                else Vector2i(o, o + (w - 1) * 2 + (h - 1) * 2 - i);
             }
             inline Iterator& operator++() {
                 if (++i >= (w - 1) * 2 + (h - 1) * 2) {
@@ -132,9 +144,6 @@ namespace hpc {
             const bool tr;
             constexpr Iterator(int _h, int _w, int _i, int _j, bool _tr) :h(_h), w(_w), i(_i), j(_j), tr(_tr) {}
 
-            // inline pair<int, int> operator*() const {
-            //     return make_pair(i & 1 ? h - 1 - (i >> 1) : (i >> 1), j & 1 ? w - 1 - (j >> 1) : (j >> 1));
-            // }
             inline Vector2i operator*() const {
                 return Vector2i(j & 1 ? w - 1 - (j >> 1) : (j >> 1), i & 1 ? h - 1 - (i >> 1) : (i >> 1));
             }
@@ -152,6 +161,36 @@ namespace hpc {
         constexpr inline Iterator begin() const { return Iterator(Height, Width, 0, 0, Tr); }
         constexpr inline Iterator end() const { return Iterator(Height, Width, Tr ? 0 : Height, Tr ? Width : 0, Tr); }
     };
+
+
+
+    class LScan {
+        const int Height, Width;
+    public:
+        struct Iterator {
+            int mini, maxi, sw; // width
+            int i, o = 0; // index
+            constexpr Iterator(int _mini, int _maxi, int _sw, int _i, int _o) :mini(_mini), maxi(_maxi), sw(_sw), i(_i), o(_o) {}
+
+            inline Vector2i operator*() const {
+                return Vector2i(i & 1 ? o + (i >> 1) : o, i & 1 ? o : o + (i >> 1));
+            }
+            inline Iterator& operator++() noexcept {
+                ++i;
+                if (i >= (mini - o) * 2 + sw) ++i;
+                if (i >= (maxi - o) * 2) i = 1, ++o;
+                return *this;
+            }
+            inline bool operator!=(const Iterator& another) const noexcept {
+                return i != another.i || o != another.o;
+
+            }
+        };
+        constexpr LScan(int _h, int _w) :Height(_h), Width(_w) {}
+        constexpr inline Iterator begin() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, 0); }
+        constexpr inline Iterator end() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, min(Height, Width)); }
+    };
+
 
 
     template<typename ITER>
@@ -187,12 +226,12 @@ namespace hpc {
         template<> inline float rand<float>(float l, float h) { return uniform_real_distribution<float>(l, h)(util::randdev); }
 
         class MyPiece {
-            int x_, y_, w_, h_, remTurn_, s_;
+            int x_, y_, w_, h_, remTurn_, s_, id_;
         public:
-            MyPiece(const Piece& p) :
+            MyPiece(const Piece& p, int id = -1) :
                 x_(p.pos().x), y_(p.pos().y),
                 w_(p.width()), h_(p.height()),
-                remTurn_(p.restRequiredHeatTurnCount()), s_(p.score()) {}
+                remTurn_(p.restRequiredHeatTurnCount()), s_(p.score()), id_(id) {}
             MyPiece(int _x, int _y, int _w, int _h) :
                 x_(_x), y_(_y),
                 w_(_w), h_(_h),
@@ -203,6 +242,7 @@ namespace hpc {
             inline int height() const noexcept { return h_; }
             inline int restRequiredHeatTurnCount() const noexcept { return remTurn_; }
             inline int score() const noexcept { return s_; }
+            inline int id() const noexcept { return id_; }
 
             inline MyPiece& moveTo(int _x, int _y) noexcept { x_ = _x; y_ = _y; return *this; }
 
@@ -309,6 +349,7 @@ namespace hpc {
         using History = vector<pair<int, Vector2i>>;
 
 
+
         History solvePlacementPiece2(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount) {
             
             vector<Tag<int, const Piece*>> shuffler;
@@ -340,12 +381,12 @@ namespace hpc {
                         // 直前の検証で重なった
                         auto currIsec = placed.end();
 
-                        for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(randdev()&31))) {
-                            //int x = yx.first, y = yx.second; // swap
+
+                        auto test = [&](Vector2i vec) {
 
                             if (currIsec != placed.end()) {
                                 if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
-                                    continue;
+                                    return false;
                             }
 
                             auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
@@ -356,10 +397,27 @@ namespace hpc {
                                 currScore += piece.score();
                                 if (extraChance == 0)
                                     currResult.emplace_back(picked.first, vec);
-                                break;
+                                return true;
                             }
                             else {
                                 currIsec = move(isec);
+                            }
+                            return false;
+                        };
+                        
+                        // if (mem::ScanMode == 2) {
+                        //     for (auto vec :
+                        //         LScan(height + 1 - piece.height(), width + 1 - piece.width())) {
+                        //         vec.x = width - piece.width() - vec.x;
+                        //         vec.y = height - piece.height() - vec.y;
+                        //         if (test(vec)) break;
+                        //     }
+                        // }
+                        // else
+                        {
+                            for (auto vec :
+                                WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(randdev() & 31))) {
+                                if (test(vec)) break;
                             }
                         }
                     }
@@ -414,20 +472,18 @@ namespace hpc {
                     // 直前の検証で重なった
                     auto currIsec = placed.end();
 
-                    //Vector2i lastPos(-1, -1);
-                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), true)) {
-                        //int x = yx.first, y = yx.second; // swap
+
+                    auto test = [&](Vector2i vec) {
 
                         if (currIsec != placed.end()) {
                             if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
-                                continue;
+                                return false;
                         }
 
                         auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
 
                         if (isec == placed.end()) {
                             // 置く．
-                            //lastPos = vec;
                             placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
                             currScore += piece.score();
                             currResult.emplace_back(picked.first, vec);
@@ -439,10 +495,26 @@ namespace hpc {
                             currResult.pop_back();
                             currScore -= piece.score();
                             placed.pop_back();
-                            break;
+                            return true;
                         }
                         else {
                             currIsec = move(isec);
+                        }
+
+                        return false;
+                    };
+
+                    // if (mem::ScanMode == 2) {
+                    //     for (auto vec :
+                    //         LScan(height + 1 - piece.height(), width + 1 - piece.width())) {
+                    //         if (test(vec)) break;
+                    //     }
+                    // }
+                    // else
+                    {
+                        for (auto vec :
+                            WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(randdev() & 31))) {
+                            if (test(vec)) break;
                         }
                     }
                 }
@@ -643,18 +715,21 @@ Action Answer::decideNextAction(const Stage& aStage)
     auto& laneL = aStage.candidateLane(CandidateLaneType_Large);
     auto& oven = aStage.oven();
 
-    mem::ScanMode = false; // TODO: 上手いこと実装
-    {
+    laneS.recipe().maxSampleEdgeLength();
+
+    if (aStage.turn() == 0) {
+        mem::ScanMode = 0; // TODO: 上手いこと実装
         int hLong = 0, vLong = 0;
         for (auto& p : laneS.pieces()) hLong += p.width(), vLong += p.height();
         for (auto& p : laneL.pieces()) hLong += p.width(), vLong += p.height();
-        if (hLong *3 < vLong *2) mem::ScanMode = true;
+        if (hLong * 3 < vLong * 2) mem::ScanMode = 1;
+        if (vLong * 3 < hLong * 2) mem::ScanMode = 0;
     }
 
     vector<Piece> bakingPieces(ALL(oven.bakingPieces()));
     vector<Piece> bakingUnignorablePieces;
     for (auto& p : bakingPieces) {
-        if (p.restRequiredHeatTurnCount() > 10) bakingUnignorablePieces.push_back(p);
+        if (p.restRequiredHeatTurnCount()+(aStage.turn()%4) >= 8) bakingUnignorablePieces.push_back(p);
         //if (p.height() * p.width() >= 10) bakingUnignorablePieces.push_back(p); // 
     }
     
