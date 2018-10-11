@@ -11,6 +11,7 @@
 #include <limits>
 #include <typeinfo>
 #include <initializer_list>
+#include <functional>
 
 #include <tuple>
 #include <type_traits>
@@ -393,9 +394,8 @@ namespace hpc {
                 return l.second->score() > r.second->score();
             });
 
-            auto dfs = 
-                [&width, &height, &shuffler, &bestScore, &best]
-            (auto dfs, vector<int>& indices, vector<Piece>& placed, History& currResult, int currScore) -> void {
+            function<void(vector<int>& indices, vector<Piece>& placed, History& currResult, int currScore)> dfs =
+                [&](vector<int>& indices, vector<Piece>& placed, History& currResult, int currScore) -> void {
 
                 if (bestScore < currScore) {
                     bestScore = currScore;
@@ -433,7 +433,7 @@ namespace hpc {
                             currResult.emplace_back(picked.first, vec);
                             indices[i] = -1;
 
-                            dfs(dfs, indices, placed, currResult, currScore);
+                            dfs(indices, placed, currResult, currScore);
 
                             indices[i] = idx;
                             currResult.pop_back();
@@ -496,7 +496,7 @@ namespace hpc {
             vector<Piece> placed = placedPieces;
             vector<int> indices(shuffler.size()); iota(ALL(indices), 0);
             History currResult;
-            dfs(dfs, indices, placed, currResult, 0);
+            dfs(indices, placed, currResult, 0);
 
 
             analysis::counter[vector<int>{1, (int)best.size()}]++;
