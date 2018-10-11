@@ -184,8 +184,30 @@ namespace hpc {
         template<typename T> inline T rand(T l, T h) { return uniform_int_distribution<T>(l, h)(randdev); }
         template<> inline double rand<double>(double l, double h) { return uniform_real_distribution<double>(l, h)(util::randdev); }
         template<> inline float rand<float>(float l, float h) { return uniform_real_distribution<float>(l, h)(util::randdev); }
-        
-        // noassertion
+
+        class MyPiece {
+            int x_, y_, w_, h_, remTurn_, s_;
+        public:
+            MyPiece(const Piece& p) :
+                x_(p.pos().x), y_(p.pos().y),
+                w_(p.width()), h_(p.height()),
+                remTurn_(p.restRequiredHeatTurnCount()), s_(p.score()) {}
+            MyPiece(int _x, int _y, int _w, int _h) :
+                x_(_x), y_(_y),
+                w_(_w), h_(_h),
+                remTurn_(0), s_(0) {}
+            inline int x() const noexcept { return x_; }
+            inline int y() const noexcept { return y_; }
+            inline int width() const noexcept { return w_; }
+            inline int height() const noexcept { return h_; }
+            inline int restRequiredHeatTurnCount() const noexcept { return remTurn_; }
+            inline int score() const noexcept { return s_; }
+
+            inline MyPiece& moveTo(int _x, int _y) noexcept { x_ = _x; y_ = _y; return *this; }
+
+            // inline Vector2i pos() const { return Vector2i(x_, y_); }
+        };
+
         inline bool isIntersect(
             const Vector2i& aLhsPos, int aLhsWidth, int aLhsHeight,
             const Vector2i& aRhsPos,int aRhsWidth, int aRhsHeight) noexcept {
@@ -205,25 +227,32 @@ namespace hpc {
                 aRhsPos_y < aLhsPos_y + aLhsHeight;
         }
 
-        // @return end iterator -> NO / valid iterator -> YES
+        /// @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
         inline ITER isIntersectPieces(ITER begin, ITER end, const Piece& piece) {
             return isIntersectPieces(begin, end, piece.pos(), piece);
         }
 
-        // @return end iterator -> NO / valid iterator -> YES
+        /// @return end iterator -> NO / valid iterator -> YES
         template<typename ITER>
         //using ITER = vector<Piece>::const_iterator;
-        inline ITER isIntersectPieces(ITER begin, ITER end, const Vector2i& pos, const Piece& piece) {
+        inline ITER isIntersectPieces(ITER begin, ITER end, int x, int y, int width, int height) {
             for (; begin != end; ++begin) {
                 if (util::isIntersect(
-                    pos, piece.width(), piece.height(),
-                    begin->pos(), begin->width(), begin->height()
+                    x, y, width, height,
+                    begin->pos().x, begin->pos().y, begin->width(), begin->height()
                 )) {
                     return move(begin);
                 }
             }
             return move(begin);
+        }
+
+        /// @return end iterator -> NO / valid iterator -> YES
+        template<typename ITER>
+        //using ITER = vector<Piece>::const_iterator;
+        inline ITER isIntersectPieces(ITER begin, ITER end, const Vector2i& pos, const Piece& piece) {
+            return isIntersectPieces(begin, end, pos.x, pos.y, piece.width(), piece.height());
         }
 
         inline bool isIntersectPieces(const Piece& p1, const Piece& p2) {
@@ -238,6 +267,7 @@ namespace hpc {
                 v2, p2.width(), p2.height()
             );
         }
+
         inline bool isInArea(int areaWidth, int areaHeight, int x, int y, int width, int height) {
             return 0 <= x && x + width <= areaWidth && 0 <= y && y + height <= areaHeight;
         }
@@ -246,6 +276,19 @@ namespace hpc {
         }
         inline bool isInArea(const Oven& oven, const Vector2i& pos, const Piece& piece) {
             return 0 <= pos.x && pos.x + piece.width() <= oven.width() && 0 <= pos.y && pos.y + piece.height() <= oven.height();
+        }
+
+        //template<typename ITER>
+        using ITER = vector<Piece>::const_iterator;
+        inline int distancePieces(ITER begin, ITER end, int ovenWidth, int ovenHeight, int px, int py) {
+            int dx = max(ovenWidth - 1 - px, px),
+                dy = max(ovenHeight - 1 - py, py);
+            for (; begin != end; ++begin) {
+                dx = min<int>(dx, max<int>(begin->pos().x - px, px - (begin->pos().x + begin->width())));
+                dy = min<int>(dy, max<int>(begin->pos().y - py, py - (begin->pos().y + begin->height())));
+                if (dx < 0 || dy < 0) return -1;
+            }
+            return max(dx, dy);
         }
     }
 
@@ -265,7 +308,7 @@ namespace hpc {
         using History = vector<pair<int, Vector2i>>;
 
 
-        History solvePlacementPiece2(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
+        History solvePlacementPiece2(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount) {
             
             vector<Tag<int, const Piece*>> shuffler;
             shuffler.reserve(pieces.size());
@@ -274,12 +317,12 @@ namespace hpc {
 
             int bestScore = 0;
             History best, currResult;
+            int bestFixTime = 0;
 
             sort(ALL(shuffler));
 
             vector<Piece> placed;
             repeat(loopcnt, maxLoopcount) {
-            //do{
                 shuffle(ALL(shuffler), util::randdev);
                 // list<Piece> placed(ALL(placedPieces));
                 placed = placedPieces;
@@ -288,49 +331,55 @@ namespace hpc {
                 int currScore = 0;
                 currResult.clear();
 
-                for (auto picked : shuffler) {
+                repeat(extraChance, 4) {
+                    for (auto picked : shuffler) {
 
-                    // 今置こうとしている
-                    auto& piece = *picked.second;
-                    // 直前の検証で重なった
-                    auto currIsec = placed.end();
+                        // 今置こうとしている
+                        auto& piece = *picked.second;
+                        // 直前の検証で重なった
+                        auto currIsec = placed.end();
 
-                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(loopcnt&31))) {
-                        //int x = yx.first, y = yx.second; // swap
+                        for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode ^ !(randdev()&31))) {
+                            //int x = yx.first, y = yx.second; // swap
 
-                        if (currIsec != placed.end()) {
-                            if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
-                                continue;
-                        }
+                            if (currIsec != placed.end()) {
+                                if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
+                                    continue;
+                            }
 
-                        auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
+                            auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
 
-                        if (isec == placed.end()) {
-                            // 置く．
-                            placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
-                            currScore += piece.score();
-                            currResult.emplace_back(picked.first, vec);
-                            break;
-                        }
-                        else {
-                            currIsec = move(isec);
+                            if (isec == placed.end()) {
+                                // 置く．
+                                placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
+                                currScore += piece.score();
+                                if (extraChance == 0)
+                                    currResult.emplace_back(picked.first, vec);
+                                break;
+                            }
+                            else {
+                                currIsec = move(isec);
+                            }
                         }
                     }
                 }
                 if (bestScore < currScore) {
                     bestScore = currScore;
                     best = move(currResult);
+                    if (best.size() == shuffler.size()) break; // best
+                    bestFixTime = 0;
                 }
-                if (loopcnt == minLoopcount && best.size() <= 2) break;
+                else {
+                    if (++bestFixTime > 30) break;
+                }
 
-            } //while (next_permutation(ALL(shuffler)));
+            }
 
-            analysis::counter[vector<int>{(int)best.size(), minLoopcount}]++;
             return best;
         }
 
 
-        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, int maxLoopcount, int minLoopcount) {
+        History solvePlacementPiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces) {
 
             vector<Tag<int, const Piece*>> shuffler;
             shuffler.reserve(pieces.size());
@@ -340,7 +389,9 @@ namespace hpc {
             int bestScore = 0;
             History best;
 
-            sort(ALL(shuffler));
+            sort(ALL(shuffler), [](const decltype(shuffler)::value_type& l, const decltype(shuffler)::value_type& r) {
+                return l.second->score() > r.second->score();
+            });
 
             auto dfs = 
                 [&width, &height, &shuffler, &bestScore, &best]
@@ -350,10 +401,12 @@ namespace hpc {
                     bestScore = currScore;
                     best = currResult;
                 }
-
+                bool empty = true;
                 repeat(i, indices.size()) {
                     int idx = indices[i];
                     if (idx < 0) continue;
+                    empty = false;
+
                     auto& picked = shuffler[idx];
 
                     // 今置こうとしている
@@ -361,8 +414,8 @@ namespace hpc {
                     // 直前の検証で重なった
                     auto currIsec = placed.end();
 
-                    Vector2i lastPos(-1, -1);
-                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), mem::ScanMode)) {
+                    //Vector2i lastPos(-1, -1);
+                    for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), true)) {
                         //int x = yx.first, y = yx.second; // swap
 
                         if (currIsec != placed.end()) {
@@ -374,7 +427,7 @@ namespace hpc {
 
                         if (isec == placed.end()) {
                             // 置く．
-                            lastPos = vec;
+                            //lastPos = vec;
                             placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
                             currScore += piece.score();
                             currResult.emplace_back(picked.first, vec);
@@ -393,6 +446,51 @@ namespace hpc {
                         }
                     }
                 }
+
+                if (empty) {
+                    // extra chance !!
+
+                    auto ex_placed = placed;
+                    int ex_currScore = currScore;
+
+                    repeat(lop, 3) {
+                        for (auto picked : shuffler) {
+
+                            // 今置こうとしている
+                            auto& piece = *picked.second;
+                            // 直前の検証で重なった
+                            auto currIsec = ex_placed.end();
+
+                            //Vector2i lastPos(-1, -1);
+                            for (auto vec : WipeScan(height + 1 - piece.height(), width + 1 - piece.width(), true)) {
+                                //int x = yx.first, y = yx.second; // swap
+
+                                if (currIsec != ex_placed.end()) {
+                                    if (util::isIntersectPieces(currIsec->pos(), *currIsec, vec, piece))
+                                        continue;
+                                }
+
+                                auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
+
+                                if (isec == ex_placed.end()) {
+                                    // 置く．
+                                    //lastPos = vec;
+                                    ex_placed.emplace_back(vec, piece.width(), piece.height(), 114, 514);
+                                    ex_currScore += piece.score();
+
+                                    break;
+                                }
+                                else {
+                                    currIsec = move(isec);
+                                }
+                            }
+                        }
+                    }
+                    if (bestScore < ex_currScore) {
+                        bestScore = ex_currScore;
+                        best = currResult;
+                    }
+                }
             };
 
             vector<Piece> placed = placedPieces;
@@ -401,9 +499,77 @@ namespace hpc {
             dfs(dfs, indices, placed, currResult, 0);
 
 
-            analysis::counter[vector<int>{(int)best.size(), minLoopcount}]++;
+            analysis::counter[vector<int>{1, (int)best.size()}]++;
             return best;
         }
+
+
+        void generateListOfEmptyCell() {
+
+        }
+
+
+        // void replacePiece(const int width, const int height, const vector<Piece>& placedPieces, const vector<Piece>& pieces, History& history) {
+        //     
+        //     int bestscore = 0;
+        //     {
+        //         vector<Piece> placed;
+        //         placed = placedPieces;
+        //         for (auto& p : history)
+        //             placed.emplace_back(p.second, pieces[p.first].width(), pieces[p.first].height(), 114, 514);
+        // 
+        //         repeat(x, width) {
+        //             repeat(y, height) {
+        //                 bestscore += max(0, util::distancePieces(ALL(placed), width, height, x, y));
+        //             }
+        //         }
+        //     }
+        // 
+        //     int ana_prevScore = bestscore;
+        // 
+        //     repeat(tryloopcnt, 300) {
+        // 
+        //         History currHistory; currHistory.reserve(history.size());
+        // 
+        //         vector<Piece> placed;
+        //         placed.reserve(placedPieces.size() + history.size());
+        //         placed = placedPieces;
+        // 
+        //         bool fail = true;
+        //         for (auto& p : history) {
+        //             auto& piece = pieces[p.first];
+        // 
+        //             int x, y;
+        //             fail = true;
+        //             repeat(lop2, 100) {
+        //                 x = util::rand<int>(0, width - 1);
+        //                 y = util::rand<int>(0, height - 1);
+        //                 auto isec = util::isIntersectPieces(ALL(placed), x, y, piece.width(), piece.height());
+        //                 if (isec == placed.end()) {
+        //                     fail = false;
+        //                     break;
+        //                 }
+        //             }
+        //             if (fail) break;
+        //             placed.emplace_back(Vector2i(x, y), piece.width(), piece.height(), 114, 514);
+        //         }
+        //         
+        //         if (fail) continue;
+        // 
+        //         int score = 0;
+        //         repeat(x, width) {
+        //             repeat(y, height) {
+        //                 score += max(0, util::distancePieces(ALL(placed), width, height, x, y));
+        //             }
+        //         }
+        //         if (bestscore < score) {
+        //             bestscore = score;
+        //             history = move(currHistory);
+        //         }
+        //     }
+        // 
+        //     analysis::counter[vector<int>{bestscore - ana_prevScore}]++;
+        // }
 
 
         // void expandPiecesRandom(vector<Piece>& placedPieces) {
@@ -512,7 +678,7 @@ Action Answer::decideNextAction(const Stage& aStage)
         //         usePiecesIndexS.push_back(p.first),
         //         usePieces.push_back(p.second);
         // }
-        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces, 700, 140);
+        auto placements = algo::solvePlacementPiece(oven.width(), oven.height(), bakingUnignorablePieces, laneLPieces);
 
         if (!placements.empty()) {
 
@@ -573,35 +739,14 @@ Action Answer::decideNextAction(const Stage& aStage)
         }
         if (bestScore > 0) return best;
     }
-    // {
-    //     pair<int, int> bestScore(1e9, 0);
-    //     Action best = Action::Wait();
-    // 
-    //     for (auto p : make_IteratorWithIndex(ALL(laneSPieces))) {
-    //         const auto& piece = p.second;
-    //         auto i = p.first;
-    //         if (piece.restRequiredHeatTurnCount() >= 4) continue;
-    //         pair<int, int> score(piece.restRequiredHeatTurnCount(), piece.width() + piece.height() + max(piece.width(), piece.height()));
-    //         if (bestScore <= score) continue;
-    //         for (auto xy : WipeScan(oven.height() + 1 - piece.height(), oven.width() + 1 - piece.width(), mem::ScanMode)) {
-    //             int x, y;
-    //             y = xy.first;
-    //             x = xy.second;
-    //             if (oven.isAbleToPut(piece, Vector2i(x, y)) && util::isIntersectPieces(ALL(bakingPieces), Vector2i(x, y), piece) == bakingPieces.end()) {
-    //                 bestScore = score;
-    //                 best = Action::Put(CandidateLaneType_Small, i, Vector2i(x, y));
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     if (bestScore.first < 99) return best;
-    // }
 
 
 
     if (mem::mySmallCommandQueue.empty()) {
 
-        auto placements = algo::solvePlacementPiece2(oven.width(), oven.height(), bakingPieces, laneSPieces, 700, 150);
+        auto placements = algo::solvePlacementPiece2(oven.width(), oven.height(), bakingPieces, laneSPieces, 700);
+
+        // algo::replacePiece(oven.width(), oven.height(), bakingPieces, laneSPieces, placements);
 
         sort(ALL(placements), [&laneSPieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
             int x1 = laneSPieces[p1.first].requiredHeatTurnCount()-1,
