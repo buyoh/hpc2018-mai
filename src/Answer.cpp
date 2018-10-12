@@ -92,7 +92,7 @@ namespace hpc {
     class DreamcastScan {
         const int Height, Width;
     public:
-        constexpr DreamcastScan(int _h, int _w) :Height(_h), Width(_w) {}
+        DreamcastScan(int _h, int _w) :Height(_h), Width(_w) {}
         struct Iterator {
             int h, w; // width
             int i, o; // index, offset
@@ -117,8 +117,8 @@ namespace hpc {
 
             }
         };
-        constexpr inline Iterator begin() const { return Iterator(Height, Width, 0, 0); }
-        constexpr inline Iterator end() const { return Iterator(0, 0, 0, 0); }
+        inline Iterator begin() const { return Iterator(Height, Width, 0, 0); }
+        inline Iterator end() const { return Iterator(0, 0, 0, 0); }
     };
 
 
@@ -130,7 +130,7 @@ namespace hpc {
             const int h, w; // width
             int i, j; // index
             const bool tr;
-            constexpr Iterator(int _h, int _w, int _i, int _j, bool _tr) :h(_h), w(_w), i(_i), j(_j), tr(_tr) {}
+            Iterator(int _h, int _w, int _i, int _j, bool _tr) :h(_h), w(_w), i(_i), j(_j), tr(_tr) {}
 
             inline Vector2i operator*() const {
                 return Vector2i(j & 1 ? w - 1 - (j >> 1) : (j >> 1), i & 1 ? h - 1 - (i >> 1) : (i >> 1));
@@ -145,9 +145,9 @@ namespace hpc {
 
             }
         };
-        constexpr WipeScan(int _h, int _w, bool _tr = false) :Height(_h), Width(_w), Tr(_tr) {}
-        constexpr inline Iterator begin() const { return Iterator(Height, Width, 0, 0, Tr); }
-        constexpr inline Iterator end() const { return Iterator(Height, Width, Tr ? 0 : Height, Tr ? Width : 0, Tr); }
+        WipeScan(int _h, int _w, bool _tr = false) :Height(_h), Width(_w), Tr(_tr) {}
+        inline Iterator begin() const { return Iterator(Height, Width, 0, 0, Tr); }
+        inline Iterator end() const { return Iterator(Height, Width, Tr ? 0 : Height, Tr ? Width : 0, Tr); }
     };
 
 
@@ -158,7 +158,7 @@ namespace hpc {
         struct Iterator {
             int mini, maxi, sw; // width
             int i, o = 0; // index
-            constexpr Iterator(int _mini, int _maxi, int _sw, int _i, int _o) :mini(_mini), maxi(_maxi), sw(_sw), i(_i), o(_o) {}
+            Iterator(int _mini, int _maxi, int _sw, int _i, int _o) :mini(_mini), maxi(_maxi), sw(_sw), i(_i), o(_o) {}
 
             inline Vector2i operator*() const {
                 return Vector2i(i & 1 ? o + (i >> 1) : o, i & 1 ? o : o + (i >> 1));
@@ -174,9 +174,9 @@ namespace hpc {
 
             }
         };
-        constexpr LScan(int _h, int _w) :Height(_h), Width(_w) {}
-        constexpr inline Iterator begin() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, 0); }
-        constexpr inline Iterator end() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, min(Height, Width)); }
+        LScan(int _h, int _w) :Height(_h), Width(_w) {}
+        inline Iterator begin() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, 0); }
+        inline Iterator end() const { return Iterator(min(Height, Width), max(Height, Width), Height > Width, 1, min(Height, Width)); }
     };
 
 
@@ -206,16 +206,19 @@ namespace hpc {
 
 
     class MyPiece {
-        int x_, y_, w_, h_, remTurn_, s_, id_;
+        int x_, y_, w_, h_, remTurn_, s_, id_, future_;
     public:
-        MyPiece(const Piece& p, int _id = -1) :
-            x_(p.pos().x), y_(p.pos().y),
-            w_(p.width()), h_(p.height()),
-            remTurn_(p.restRequiredHeatTurnCount()), s_(p.score()), id_(_id) {}
+        MyPiece(const Piece& p, int _id = -1, int _future = 0) :
+            x_(p.pos().x), y_(p.pos().y), w_(p.width()), h_(p.height()),
+            remTurn_(p.restRequiredHeatTurnCount()), s_(p.score()), id_(_id), future_(_future) {}
+
+        MyPiece(const MyPiece& p, int _id, int _future) :
+            x_(p.x_), y_(p.y_), w_(p.w_), h_(p.h_),
+            remTurn_(p.remTurn_), s_(p.s_), id_(_id), future_(_future) {}
+
         MyPiece(int _x, int _y, int _w, int _h) :
-            x_(_x), y_(_y),
-            w_(_w), h_(_h),
-            remTurn_(0), s_(0) {}
+            x_(_x), y_(_y), w_(_w), h_(_h),
+            remTurn_(0), s_(0), id_(-1), future_(0) {}
         inline int x() const noexcept { return x_; }
         inline int y() const noexcept { return y_; }
         inline int width() const noexcept { return w_; }
@@ -223,6 +226,9 @@ namespace hpc {
         inline int restRequiredHeatTurnCount() const noexcept { return remTurn_; }
         inline int score() const noexcept { return s_; }
         inline int id() const noexcept { return id_; }
+        inline int future() const noexcept { return future_; }
+
+        inline int area() const noexcept { return w_ * h_; }
 
         inline MyPiece& moveTo(int _x, int _y) noexcept { x_ = _x; y_ = _y; return *this; }
         inline MyPiece& setId(int _id) noexcept { id_ = _id; return *this; }
@@ -359,17 +365,44 @@ namespace hpc {
             return 0 <= pos.x && pos.x + piece.width() <= oven.width() && 0 <= pos.y && pos.y + piece.height() <= oven.height();
         }
 
-        //template<typename ITER>
-        using ITER = vector<MyPiece>::const_iterator;
-        inline int distancePieces(ITER begin, ITER end, int ovenWidth, int ovenHeight, int px, int py) {
-            int dx = max(ovenWidth - 1 - px, px),
-                dy = max(ovenHeight - 1 - py, py);
+
+        /// @return 重なるPieceのうち，最大のrestRequiredHeatTurnCount
+        template<typename ITER>
+        //using ITER = vector<MyPiece>::const_iterator;
+        inline int calcRestTimeIntersectPieces(ITER begin, ITER end, int x, int y, int width, int height) {
+            int waitTime = 0;
             for (; begin != end; ++begin) {
-                dx = min<int>(dx, max<int>(begin->x() - px, px - (begin->x() + begin->width())));
-                dy = min<int>(dy, max<int>(begin->y() - py, py - (begin->y() + begin->height())));
-                if (dx < 0 || dy < 0) return -1;
+                if (begin->future() == 0 &&
+                    util::isIntersect(
+                    x, y, width, height,
+                    begin->x(), begin->y(), begin->width(), begin->height()
+                )) {
+                    waitTime = max(waitTime, begin->restRequiredHeatTurnCount());
+                }
             }
-            return max(dx, dy);
+            return waitTime;
+        }
+
+
+        /// @return end iterator -> NO / valid iterator -> YES
+        template<typename ITER>
+        //using ITER = vector<Piece>::const_iterator;
+        inline ITER isIntersectPiecesWithRestTime(ITER begin, ITER end, int x, int y, int width, int height, int rest) {
+            for (; begin != end; ++begin) {
+                if (begin->future() <= rest && util::isIntersect(
+                    x, y, width, height,
+                    begin->x(), begin->y(), begin->width(), begin->height()
+                )) {
+                    return move(begin);
+                }
+            }
+            return move(begin);
+        }
+        /// @return end iterator -> NO / valid iterator -> YES
+        template<typename ITER>
+        //using ITER = vector<Piece>::const_iterator;
+        inline ITER isIntersectPiecesWithRestTime(ITER begin, ITER end, const Vector2i& pos, const MyPiece& piece) {
+            return isIntersectPiecesWithRestTime(begin, end, pos.x, pos.y, piece.width(), piece.height(), piece.restRequiredHeatTurnCount());
         }
     }
 
@@ -428,7 +461,7 @@ namespace hpc {
                                 util::isIntersectPieces(currIsec->x(), currIsec->y(), *currIsec, vec.x, vec.y, piece))
                                 continue;
 
-                            auto isec = util::isIntersectPieces(ALL(placed), vec, piece);
+                            auto isec = util::isIntersectPiecesWithRestTime(ALL(placed), vec, piece);
 
                             if (isec == placed.end()) {
                                 // 置く．
@@ -474,6 +507,9 @@ namespace hpc {
                 return l->score() > r->score();
             });
 
+            // スコア計算用の関数
+            auto lambdaBaseScore = [](const MyPiece& piece) {return piece.area();/*piece.score();*/ };
+
             function<void(vector<int>& indices, vector<MyPiece>& placed, History& currResult, int currScore)> dfs =
                 [&](vector<int>& indices, vector<MyPiece>& placed, History& currResult, int currScore) -> void {
 
@@ -510,7 +546,7 @@ namespace hpc {
 
                         if (isec == placed.end()) {
                             // スコア計算
-                            int score = piece.score();
+                            int score = lambdaBaseScore(piece);
                             if (piece.restRequiredHeatTurnCount() > 80) {
                                 if (!(vec.x == 0) &&
                                     !(vec.y == height - piece.height()) &&
@@ -570,7 +606,7 @@ namespace hpc {
                                     // 置く．
                                     //lastPos = vec;
                                     ex_placed.emplace_back(piece.moved(vec.x, vec.y));
-                                    ex_currScore += piece.score();
+                                    ex_currScore += lambdaBaseScore(piece);
 
                                     break;
                                 }
@@ -687,13 +723,13 @@ Action Answer::decideNextAction(const Stage& aStage)
     auto& oven = aStage.oven();
     const int ovenHeight = oven.height();
     const int ovenWidth = oven.width();
-    const int timeLeft = Parameter::GameTurnLimit - aStage.turn();
+    const int timeLeft = Parameter::GameTurnLimit - aStage.turn() - 1;
 
 
     laneS.recipe().maxSampleEdgeLength();
 
-    if (aStage.turn() == 0) {
-        mem::ScanMode = 0; // TODO: 上手いこと実装
+    if (/*aStage.turn() == 0*/ true) {
+        //mem::ScanMode = 0; // TODO: 上手いこと実装
         int hLong = 0, vLong = 0;
         for (auto& p : laneS.pieces()) hLong += p.width(), vLong += p.height();
         for (auto& p : laneL.pieces()) hLong += p.width(), vLong += p.height();
@@ -704,7 +740,7 @@ Action Answer::decideNextAction(const Stage& aStage)
     vector<MyPiece> bakingPieces(ALL(oven.bakingPieces()));
     vector<MyPiece> bakingUnignorablePieces;
     for (auto& p : bakingPieces) {
-        if (p.restRequiredHeatTurnCount()+(aStage.turn()%4) >= 8) bakingUnignorablePieces.push_back(p);
+        if (p.restRequiredHeatTurnCount() + (aStage.turn()%4) >= 8) bakingUnignorablePieces.push_back(p);
         //if (p.height() * p.width() >= 10) bakingUnignorablePieces.push_back(p); // 
     }
     
@@ -753,7 +789,7 @@ Action Answer::decideNextAction(const Stage& aStage)
             mem::myLargeCommandQueue = move(placements);
         }
     }
-    else if (aStage.turn() > 20) {
+    else if (aStage.turn() > 20 && (aStage.turn() % 4 == 0)) {
         auto placements = algo::solvePlacementPiece(ovenWidth, ovenHeight, bakingUnignorablePieces, laneLPieces, timeLeft);
         
         if (calcScoreOfHistory(mem::myLargeCommandQueue) < calcScoreOfHistory(placements)) {
@@ -770,6 +806,9 @@ Action Answer::decideNextAction(const Stage& aStage)
     iterate (it, mem::myLargeCommandQueue.begin(), mem::myLargeCommandQueue.end()) {
         auto p = *it;
         auto& piece = solveLanePieces(p.first);
+        if (timeLeft < piece.restRequiredHeatTurnCount()) {
+            continue;
+        }
         if (oven.isAbleToPut(piece.to_piece(), p.second)) {
             mem::myLargeCommandQueue.erase(it);
 
@@ -777,7 +816,8 @@ Action Answer::decideNextAction(const Stage& aStage)
             return onDecideAction(Action::Put(switchLaneType[target.first], target.second, p.second));
         }
         // 無理やり載せる
-        bakingPieces.emplace_back(piece.moved(p.second.x, p.second.y));
+        bakingPieces.emplace_back(piece.moved(p.second.x, p.second.y),piece.id(),
+            util::calcRestTimeIntersectPieces(ALL(bakingPieces), p.second.x, p.second.y, piece.width(), piece.height()));
     }
 
 
