@@ -668,7 +668,7 @@ namespace hpc {
             function<void(vector<int>&, vector<MyPiece>&, History&, int, int, int)> dfs =
                 [&](vector<int>& indices, vector<MyPiece>& placed, History& currResult, int currScore, int restMax, int restMin) -> void {
 
-                int addscore = max(0, (200 - abs(restMax - restMin)));//max(0, (200 - abs(restMax - restMin)) * pieceMaxScore / 200);
+                int addscore = max(0, (200 - abs(restMax - restMin)/2));//max(0, (200 - abs(restMax - restMin)) * pieceMaxScore / 200);
                 if (currScore < 0) addscore = 0;
 
                 {
@@ -698,14 +698,14 @@ namespace hpc {
                     if (vec.x != -1) {
                         // スコア計算
                         int score = lambdaBaseScore(piece);
-                        if (piece.restRequiredHeatTurnCount() > 80) {
-                            if (!(vec.x == 0) &&
-                                !(vec.y == ovenHeight - piece.height()) &&
-                                !(vec.y == 0) &&
-                                !(vec.x == ovenWidth - piece.width())) {
-                                score = -1;
-                            }
-                        }
+                        //if (piece.restRequiredHeatTurnCount() > 80) {
+                        //    if (!(vec.x == 0) &&
+                        //        !(vec.y == ovenHeight - piece.height()) &&
+                        //        !(vec.y == 0) &&
+                        //        !(vec.x == ovenWidth - piece.width())) {
+                        //        score = -1;
+                        //    }
+                        //}
 
                         // 置く．
                         placed.emplace_back(piece.moved(vec.x, vec.y));
@@ -730,14 +730,14 @@ namespace hpc {
                         if (vec2.x != -1 && (vec.x != vec2.x || vec.y != vec2.y)) {
                             // スコア計算
                             int score = lambdaBaseScore(piece);
-                            if (piece.restRequiredHeatTurnCount() > 80) {
-                                if (!(vec2.x == 0) &&
-                                    !(vec2.y == ovenHeight - piece.height()) &&
-                                    !(vec2.y == 0) &&
-                                    !(vec2.x == ovenWidth - piece.width())) {
-                                    score = -1;
-                                }
-                            }
+                            // if (piece.restRequiredHeatTurnCount() > 80) {
+                            //     if (!(vec2.x == 0) &&
+                            //         !(vec2.y == ovenHeight - piece.height()) &&
+                            //         !(vec2.y == 0) &&
+                            //         !(vec2.x == ovenWidth - piece.width())) {
+                            //         score = -1;
+                            //     }
+                            // }
 
                             // 置く．
                             placed.emplace_back(piece.moved(vec2.x, vec2.y));
@@ -990,7 +990,7 @@ namespace hpc {
                 mem::myLargeCommandQueue = move(placements);
             }
         }
-        else if (aStage.turn() > 20 && (aStage.turn() % 4 == 0)) {
+        else if (aStage.turn() > 20) {
 
             // Largeレーンから配置する予定があっても，時々計算してみる
             auto placements = algo::solvePlacementLargePiece(ovenWidth, ovenHeight, bakingUnignorablePieces, laneLPieces, timeLeft);
@@ -999,7 +999,7 @@ namespace hpc {
             if (calcAreaOfHistory(mem::myLargeCommandQueue) < calcAreaOfHistory(placements)) {
 
                 // 時間かかるPieceは優先して置くようにソート
-                sort(ALL(placements), [&](const algo::History::value_type& p1, const algo::History::value_type& p2) {
+                sort(ALL(placements), [&solveLanePieces](const algo::History::value_type& p1, const algo::History::value_type& p2) {
                     return solveLanePieces(p1.first).restRequiredHeatTurnCount() > solveLanePieces(p2.first).restRequiredHeatTurnCount();
                 });
 
